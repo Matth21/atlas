@@ -1,7 +1,11 @@
 from dataclasses import dataclass
+from pathlib import Path
 
 from atlas.profile.hardware import HardwareProfiler, HardwareSpec
 from atlas.core.model import ModelLoader, ModelInfo
+from atlas.quant.mlx_quantizer import MLXQuantizer, QuantResult
+from atlas.eval.perplexity import PerplexityEval, EvalResult
+from atlas.pack.mlx_packer import MLXPacker, PackageInfo
 
 
 @dataclass(frozen=True)
@@ -12,15 +16,26 @@ class CompressionResult:
     fits_in_memory: bool
     estimated_bits: float
     estimated_size_gb: float
+    quant_result: QuantResult | None = None
+    eval_result: EvalResult | None = None
+    package_info: PackageInfo | None = None
 
 
 class Pipeline:
     def __init__(self):
         self._profiler = HardwareProfiler()
         self._loader = ModelLoader()
+        self._quantizer = MLXQuantizer()
+        self._evaluator = PerplexityEval()
+        self._packer = MLXPacker()
 
     def run(
-        self, model_id: str, target: str, quality: float, output_format: str
+        self,
+        model_id: str,
+        target: str,
+        quality: float,
+        output_format: str,
+        dry_run: bool = False,
     ) -> CompressionResult:
         hardware = self._profiler.detect()
         usable_gb = self._profiler.usable_memory_gb()
@@ -30,6 +45,26 @@ class Pipeline:
         estimated_size_gb = (model_info.num_params * target_bits / 8) / (1024 ** 3)
         fits = estimated_size_gb <= usable_gb
 
+        quant_result = None
+        eval_result = None
+        package_info = None
+
+        if fits and not dry_run:
+            bits = int(target_bits) if target_bits in (2, 4, 8) else 4
+            quant_result = self._quantizer.quantize(model_id, bits=bits)
+
+            eval_result = self._evaluator.evaluate(
+                quant_result.output_path, model_id
+            )
+
+            package_info = self._packer.package(
+                quantized_path=quant_result.output_path,
+                model_id=model_id,
+                quant_result=quant_result,
+                eval_result=eval_result,
+                hardware=hardware,
+            )
+
         return CompressionResult(
             model_id=model_id,
             hardware=hardware,
@@ -37,6 +72,9 @@ class Pipeline:
             fits_in_memory=fits,
             estimated_bits=target_bits,
             estimated_size_gb=round(estimated_size_gb, 2),
+            quant_result=quant_result,
+            eval_result=eval_result,
+            package_info=package_info,
         )
 
     def _estimate_bits(self, quality: float) -> float:
