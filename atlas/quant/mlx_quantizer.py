@@ -5,6 +5,7 @@ format at a chosen bit width and group size, caching the result on disk
 and reporting the resulting size reduction.
 """
 
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -45,7 +46,9 @@ class MLXQuantizer:
         if output_dir is None:
             safe_name = model_id.replace("/", "_")
             output_dir = CACHE_DIR / safe_name / f"mlx-{bits}bit-g{group_size}"
-        output_dir.mkdir(parents=True, exist_ok=True)
+        output_dir.parent.mkdir(parents=True, exist_ok=True)
+        if output_dir.exists():
+            shutil.rmtree(output_dir)
 
         mlx_lm_convert(
             hf_path=model_id,

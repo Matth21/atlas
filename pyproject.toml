@@ -26,3 +26,6 @@ include = ["atlas*", "cli*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: marks tests that download models and run quantization (deselect with '-m \"not slow\"')",
+]
