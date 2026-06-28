@@ -7,6 +7,11 @@ dependencies = [
     "typer>=0.9",
     "rich>=13.0",
     "huggingface-hub>=0.20",
+    "mlx>=0.30",
+    "mlx-lm>=0.20",
+    "transformers>=4.40",
+    "numpy",
+    "datasets",
 ]
 
 [project.scripts]
