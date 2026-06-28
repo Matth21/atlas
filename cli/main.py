@@ -1,6 +1,5 @@
 import typer
 from rich.console import Console
-from rich.table import Table
 
 app = typer.Typer(name="atlas", help="Universal lossless model compressor")
 console = Console()
@@ -20,14 +19,14 @@ def compress(
 
     pipeline = Pipeline()
 
-    with console.status("[bold blue]Profiling hardware + loading model metadata..."):
-        hw = pipeline._profiler.detect()
-        mi = pipeline._loader.load_metadata(model)
+    with console.status("[bold blue]Running pipeline..."):
+        result = pipeline.run(model, target, quality, output_format, dry_run=dry_run)
+
+    hw = result.hardware
+    mi = result.model_info
 
     console.print(f"[blue]\\[profile][/blue] {hw.chip} | {hw.ram_total_gb} GB RAM | {hw.gpu_cores}-core GPU")
     console.print(f"[blue]\\[model][/blue]   {mi.model_id} | {mi.num_params/1e9:.1f}B params | {mi.num_layers} layers | {mi.size_fp16_gb:.1f} GB FP16")
-
-    result = pipeline.run(model, target, quality, output_format, dry_run=dry_run)
 
     usable_gb = pipeline._profiler.usable_memory_gb()
     if not result.fits_in_memory:
