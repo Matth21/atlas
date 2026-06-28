@@ -50,8 +50,7 @@ class Pipeline:
         package_info = None
 
         if fits and not dry_run:
-            bits = int(target_bits) if target_bits in (2, 4, 8) else 4
-            quant_result = self._quantizer.quantize(model_id, bits=bits)
+            quant_result = self._quantizer.quantize(model_id, bits=int(target_bits))
 
             eval_result = self._evaluator.evaluate(
                 quant_result.output_path, model_id
@@ -77,14 +76,11 @@ class Pipeline:
             package_info=package_info,
         )
 
-    def _estimate_bits(self, quality: float) -> float:
+    def _estimate_bits(self, quality: float) -> int:
+        """Map quality target to MLX-valid bit width (2, 4, or 8)."""
         if quality >= 99.5:
-            return 5.0
-        elif quality >= 99.0:
-            return 4.0
+            return 8
         elif quality >= 98.0:
-            return 3.5
-        elif quality >= 96.0:
-            return 3.0
+            return 4
         else:
-            return 2.5
+            return 2
