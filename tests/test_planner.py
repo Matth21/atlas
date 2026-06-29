@@ -102,6 +102,27 @@ class TestQuantPlanner:
         plan = planner.plan(profile, target_bits=4, model_info=model_info, usable_memory_gb=10.0)
         assert plan.estimated_size_gb <= 10.0
 
+    def test_demotion_fraction_is_10_percent(self):
+        # 20 layers -> top 15% = 3 promoted, bottom 10% = 2 demoted,
+        # remaining 15 stay at target_bits (assuming no memory-fit demotions).
+        # Bottom demotion is intentionally narrower than top promotion —
+        # see QuantPlanner docstring for the e2e-PPL-driven rationale.
+        planner = QuantPlanner()
+        profile = _make_profile(20)
+        model_info = _make_model_info(num_layers=20)
+        plan = planner.plan(
+            profile, target_bits=4, model_info=model_info, usable_memory_gb=1000.0
+        )
+        demoted = [lp for lp in plan.layers if lp.bits < 4]
+        promoted = [lp for lp in plan.layers if lp.bits > 4]
+        assert len(demoted) == 2
+        assert len(promoted) == 3
+        # The demoted layers must be the 2 least-sensitive ones (lowest scores).
+        demoted_indices = sorted(lp.layer_index for lp in demoted)
+        assert demoted_indices == [0, 1]
+        promoted_indices = sorted(lp.layer_index for lp in promoted)
+        assert promoted_indices == [17, 18, 19]
+
     def test_invalid_target_bits(self):
         planner = QuantPlanner()
         profile = _make_profile(5)

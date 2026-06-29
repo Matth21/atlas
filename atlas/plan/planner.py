@@ -41,8 +41,14 @@ class QuantPlanner:
     - Start every layer at `target_bits`.
     - Promote the most sensitive layers (top 15%) to the next higher
       bit-width, since quantization error there hurts output quality most.
-    - Demote the least sensitive layers (bottom 25%) to the next lower
+    - Demote the least sensitive layers (bottom 10%) to the next lower
       bit-width, recovering memory budget where it's cheap to do so.
+      Deliberately narrower than the top-15% promotion: empirically,
+      demoting a wider tail (25%, then 15%) pushed too many layers
+      straight to 2-bit on real models, causing large PPL regressions.
+      A 10% tail on TinyLlama-1.1B (22 layers) cut e2e PPL delta from
+      29.43% (25% tail) to 13.27% (10% tail), vs 4.34% for uniform
+      4-bit — see e2e test history / tuning report for the sweep.
     - If the resulting plan doesn't fit in `usable_memory_gb`, greedily
       demote the least-sensitive layer that still has headroom until it
       fits (or no further demotion is possible).
@@ -73,8 +79,9 @@ class QuantPlanner:
         for s in sorted_by_sens[:top_count]:
             bits_map[s.layer_index] = _promote(target_bits)
 
-        # Demote bottom 25% to next lower bit width
-        bottom_count = max(1, int(n * 0.25))
+        # Demote bottom 10% to next lower bit width (narrower than the
+        # top-15% promotion — see class docstring for the tuning rationale)
+        bottom_count = max(1, int(n * 0.10))
         for s in sorted_by_sens[-bottom_count:]:
             bits_map[s.layer_index] = _demote(target_bits)
 
