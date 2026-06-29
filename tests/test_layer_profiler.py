@@ -14,7 +14,7 @@ class TestLayerSensitivity:
     def test_fields(self):
         ls = LayerSensitivity(
             layer_index=0, name="model.layers.0",
-            activation_norm=15.3, sensitivity_score=0.85,
+            relative_growth=15.3, sensitivity_score=0.85,
         )
         assert ls.layer_index == 0
         assert ls.sensitivity_score == 0.85
@@ -22,7 +22,7 @@ class TestLayerSensitivity:
     def test_frozen(self):
         ls = LayerSensitivity(
             layer_index=0, name="model.layers.0",
-            activation_norm=15.3, sensitivity_score=0.85,
+            relative_growth=15.3, sensitivity_score=0.85,
         )
         with pytest.raises(AttributeError):
             ls.sensitivity_score = 0.5

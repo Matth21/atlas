@@ -10,7 +10,7 @@ def _make_profile(num_layers: int = 10) -> LayerProfile:
         LayerSensitivity(
             layer_index=i,
             name=f"model.layers.{i}",
-            activation_norm=float(i + 1),
+            relative_growth=float(i + 1),
             sensitivity_score=round(i / max(num_layers - 1, 1), 4),
         )
         for i in range(num_layers)

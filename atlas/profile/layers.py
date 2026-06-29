@@ -23,12 +23,18 @@ from mlx_lm import load as mlx_lm_load
 
 CACHE_DIR = Path.home() / ".cache" / "atlas"
 
+# Bumped whenever the scoring algorithm in _compute_layer_norms changes
+# semantics. Cached profiles written under an older version are treated
+# as a cache miss and recomputed, instead of being silently reused with
+# the wrong meaning.
+ALGO_VERSION = 2
+
 
 @dataclass(frozen=True)
 class LayerSensitivity:
     layer_index: int
     name: str
-    activation_norm: float
+    relative_growth: float
     sensitivity_score: float
 
 
@@ -66,7 +72,7 @@ class LayerProfiler:
             LayerSensitivity(
                 layer_index=i,
                 name=name,
-                activation_norm=round(norm, 4),
+                relative_growth=round(norm, 4),
                 sensitivity_score=round((norm - min_norm) / norm_range, 4),
             )
             for i, (name, norm) in enumerate(layer_norms)
@@ -92,7 +98,10 @@ class LayerProfiler:
             return None
         try:
             data = json.loads(path.read_text())
-            if data.get("calibration_samples", 0) >= num_samples:
+            if (
+                data.get("algo_version") == ALGO_VERSION
+                and data.get("calibration_samples", 0) >= num_samples
+            ):
                 sensitivities = tuple(
                     LayerSensitivity(**s) for s in data["sensitivities"]
                 )
@@ -110,6 +119,7 @@ class LayerProfiler:
         path = self._cache_path(profile.model_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         data = {
+            "algo_version": ALGO_VERSION,
             "model_id": profile.model_id,
             "num_layers": profile.num_layers,
             "calibration_samples": profile.calibration_samples,
@@ -117,7 +127,7 @@ class LayerProfiler:
                 {
                     "layer_index": s.layer_index,
                     "name": s.name,
-                    "activation_norm": s.activation_norm,
+                    "relative_growth": s.relative_growth,
                     "sensitivity_score": s.sensitivity_score,
                 }
                 for s in profile.sensitivities
