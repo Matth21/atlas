@@ -6,6 +6,9 @@ from atlas.core.model import ModelLoader, ModelInfo
 from atlas.quant.mlx_quantizer import MLXQuantizer, QuantResult
 from atlas.eval.perplexity import PerplexityEval, EvalResult
 from atlas.pack.mlx_packer import MLXPacker, PackageInfo
+from atlas.profile.layers import LayerProfiler
+from atlas.plan.planner import QuantPlanner, QuantPlan
+from atlas.quant.mixed import MixedQuantizer
 
 
 @dataclass(frozen=True)
@@ -19,6 +22,7 @@ class CompressionResult:
     quant_result: QuantResult | None = None
     eval_result: EvalResult | None = None
     package_info: PackageInfo | None = None
+    quant_plan: QuantPlan | None = None
 
 
 class Pipeline:
@@ -28,6 +32,9 @@ class Pipeline:
         self._quantizer = MLXQuantizer()
         self._evaluator = PerplexityEval()
         self._packer = MLXPacker()
+        self._layer_profiler = LayerProfiler()
+        self._planner = QuantPlanner()
+        self._mixed_quantizer = MixedQuantizer()
 
     def run(
         self,
@@ -35,6 +42,7 @@ class Pipeline:
         target: str,
         quality: float,
         output_format: str,
+        mode: str = "mixed",
         dry_run: bool = False,
     ) -> CompressionResult:
         hardware = self._profiler.detect()
@@ -48,21 +56,50 @@ class Pipeline:
         quant_result = None
         eval_result = None
         package_info = None
+        quant_plan = None
 
         if fits and not dry_run:
-            quant_result = self._quantizer.quantize(model_id, bits=int(target_bits))
+            if mode == "mixed":
+                layer_profile = self._layer_profiler.profile(model_id)
+                quant_plan = self._planner.plan(
+                    layer_profile, int(target_bits), model_info, usable_gb
+                )
+                mixed_result = self._mixed_quantizer.quantize(model_id, quant_plan)
 
-            eval_result = self._evaluator.evaluate(
-                quant_result.output_path, model_id
-            )
+                eval_result = self._evaluator.evaluate(
+                    mixed_result.output_path, model_id
+                )
 
-            package_info = self._packer.package(
-                quantized_path=quant_result.output_path,
-                model_id=model_id,
-                quant_result=quant_result,
-                eval_result=eval_result,
-                hardware=hardware,
-            )
+                quant_result = QuantResult(
+                    output_path=mixed_result.output_path,
+                    bits=round(quant_plan.avg_bits),
+                    group_size=64,
+                    original_size_mb=mixed_result.original_size_mb,
+                    quantized_size_mb=mixed_result.quantized_size_mb,
+                )
+
+                package_info = self._packer.package(
+                    quantized_path=mixed_result.output_path,
+                    model_id=model_id,
+                    quant_result=quant_result,
+                    eval_result=eval_result,
+                    hardware=hardware,
+                    quant_plan=quant_plan,
+                )
+            else:
+                quant_result = self._quantizer.quantize(model_id, bits=int(target_bits))
+
+                eval_result = self._evaluator.evaluate(
+                    quant_result.output_path, model_id
+                )
+
+                package_info = self._packer.package(
+                    quantized_path=quant_result.output_path,
+                    model_id=model_id,
+                    quant_result=quant_result,
+                    eval_result=eval_result,
+                    hardware=hardware,
+                )
 
         return CompressionResult(
             model_id=model_id,
@@ -74,6 +111,7 @@ class Pipeline:
             quant_result=quant_result,
             eval_result=eval_result,
             package_info=package_info,
+            quant_plan=quant_plan,
         )
 
     def _estimate_bits(self, quality: float) -> int:

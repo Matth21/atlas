@@ -40,7 +40,7 @@ def test_pipeline_run_returns_result():
          patch.object(pipeline._packer, "package", return_value=PackageInfo(
              output_path=Path("/tmp/output"), total_size_mb=600.0, metadata={},
          )):
-        result = pipeline.run("TinyLlama/TinyLlama-1.1B-Chat-v1.0", "auto", 99.0, "mlx")
+        result = pipeline.run("TinyLlama/TinyLlama-1.1B-Chat-v1.0", "auto", 99.0, "mlx", mode="uniform")
     assert isinstance(result, CompressionResult)
     assert result.model_id == "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
     assert result.fits_in_memory is True
@@ -80,7 +80,7 @@ def test_estimated_size_smaller_than_fp16():
          patch.object(pipeline._packer, "package", return_value=PackageInfo(
              output_path=Path("/tmp/output"), total_size_mb=600.0, metadata={},
          )):
-        result = pipeline.run("TinyLlama/TinyLlama-1.1B-Chat-v1.0", "auto", 99.0, "mlx")
+        result = pipeline.run("TinyLlama/TinyLlama-1.1B-Chat-v1.0", "auto", 99.0, "mlx", mode="uniform")
     assert result.estimated_size_gb < result.model_info.size_fp16_gb
 
 
@@ -189,7 +189,7 @@ class TestPipelineRun:
              patch.object(pipeline._evaluator, "evaluate", return_value=_mock_eval_result()), \
              patch.object(pipeline._packer, "package", return_value=_mock_package_info()):
 
-            result = pipeline.run("test/tiny-1B", "auto", 99.0, "mlx")
+            result = pipeline.run("test/tiny-1B", "auto", 99.0, "mlx", mode="uniform")
 
         assert result.quant_result is not None
         assert result.eval_result is not None
@@ -213,3 +213,70 @@ class TestPipelineRun:
 
         assert result.fits_in_memory is False
         assert result.quant_result is None
+
+
+from atlas.plan.planner import QuantPlan, LayerPlan
+from atlas.quant.mixed import MixedQuantResult
+
+
+def _mock_quant_plan():
+    layers = tuple(
+        LayerPlan(i, f"model.layers.{i}", 4, 64, round(i/9, 2))
+        for i in range(10)
+    )
+    return QuantPlan(
+        model_id="test/tiny-1B", layers=layers,
+        avg_bits=4.0, estimated_size_gb=0.5, target_bits=4,
+    )
+
+
+def _mock_mixed_quant_result():
+    return MixedQuantResult(
+        output_path=Path("/tmp/mixed"),
+        plan=_mock_quant_plan(),
+        quantized_size_mb=500.0,
+        original_size_mb=2000.0,
+    )
+
+
+class TestPipelineMixedMode:
+    def test_mixed_mode_calls_profiler_planner_mixed_quantizer(self):
+        pipeline = Pipeline()
+        with patch.object(pipeline._profiler, "detect", return_value=_mock_hardware()), \
+             patch.object(pipeline._profiler, "usable_memory_gb", return_value=22.4), \
+             patch.object(pipeline._loader, "load_metadata", return_value=_mock_model_info()), \
+             patch.object(pipeline._layer_profiler, "profile") as mock_profile, \
+             patch.object(pipeline._planner, "plan", return_value=_mock_quant_plan()) as mock_plan, \
+             patch.object(pipeline._mixed_quantizer, "quantize", return_value=_mock_mixed_quant_result()), \
+             patch.object(pipeline._evaluator, "evaluate", return_value=_mock_eval_result()), \
+             patch.object(pipeline._packer, "package", return_value=_mock_package_info()):
+
+            from atlas.profile.layers import LayerProfile, LayerSensitivity
+            mock_profile.return_value = LayerProfile(
+                model_id="test/tiny-1B", num_layers=10,
+                sensitivities=tuple(
+                    LayerSensitivity(i, f"model.layers.{i}", float(i), round(i/9, 4))
+                    for i in range(10)
+                ),
+                calibration_samples=64,
+            )
+
+            result = pipeline.run("test/tiny-1B", "auto", 99.0, "mlx", mode="mixed")
+
+        mock_profile.assert_called_once()
+        mock_plan.assert_called_once()
+        assert result.quant_plan is not None
+
+    def test_uniform_mode_skips_profiler_planner(self):
+        pipeline = Pipeline()
+        with patch.object(pipeline._profiler, "detect", return_value=_mock_hardware()), \
+             patch.object(pipeline._profiler, "usable_memory_gb", return_value=22.4), \
+             patch.object(pipeline._loader, "load_metadata", return_value=_mock_model_info()), \
+             patch.object(pipeline._quantizer, "quantize", return_value=_mock_quant_result()), \
+             patch.object(pipeline._evaluator, "evaluate", return_value=_mock_eval_result()), \
+             patch.object(pipeline._packer, "package", return_value=_mock_package_info()):
+
+            result = pipeline.run("test/tiny-1B", "auto", 99.0, "mlx", mode="uniform")
+
+        assert result.quant_plan is None
+        assert result.quant_result is not None

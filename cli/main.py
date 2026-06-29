@@ -11,6 +11,7 @@ def compress(
     target: str = typer.Option("auto", help="Hardware target (e.g. macbook-air-16gb, auto)"),
     quality: float = typer.Option(99.0, min=90, max=100, help="Quality target (percent of FP16)"),
     output_format: str = typer.Option("mlx", help="Output format: mlx or gguf"),
+    mode: str = typer.Option("mixed", help="Quantization mode: uniform or mixed"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Profile only, skip quantization"),
 ):
     from atlas.core.pipeline import Pipeline
@@ -20,7 +21,7 @@ def compress(
     pipeline = Pipeline()
 
     with console.status("[bold blue]Running pipeline..."):
-        result = pipeline.run(model, target, quality, output_format, dry_run=dry_run)
+        result = pipeline.run(model, target, quality, output_format, mode=mode, dry_run=dry_run)
 
     hw = result.hardware
     mi = result.model_info
@@ -35,6 +36,14 @@ def compress(
         return
 
     console.print(f"[blue]\\[plan][/blue]    Target {result.estimated_bits}-bit | {mi.size_fp16_gb:.1f} GB → {result.estimated_size_gb:.2f} GB estimated")
+
+    if result.quant_plan is not None:
+        qp = result.quant_plan
+        bit_counts = {}
+        for lp in qp.layers:
+            bit_counts[lp.bits] = bit_counts.get(lp.bits, 0) + 1
+        dist = ", ".join(f"{n}×{b}-bit" for b, n in sorted(bit_counts.items()))
+        console.print(f"[blue]\\[mixed][/blue]   avg {qp.avg_bits:.1f}-bit | layers: {dist}")
 
     if dry_run:
         console.print(f"\n[bold green]✓[/bold green] Model fits ({result.estimated_size_gb:.2f} GB < {usable_gb:.1f} GB usable)")

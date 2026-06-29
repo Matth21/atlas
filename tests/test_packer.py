@@ -6,6 +6,7 @@ from atlas.pack.mlx_packer import MLXPacker, PackageInfo
 from atlas.quant.mlx_quantizer import QuantResult
 from atlas.eval.perplexity import EvalResult
 from atlas.profile.hardware import HardwareSpec
+from atlas.plan.planner import QuantPlan, LayerPlan
 
 
 def _make_quant_result(tmp_path: Path) -> QuantResult:
@@ -129,3 +130,58 @@ class TestMLXPacker:
         for fname in ["model.safetensors", "config.json", "tokenizer.json",
                        "tokenizer_config.json", "metadata.json"]:
             assert (result.output_path / fname).exists(), f"Missing {fname}"
+
+
+def _make_quant_plan() -> QuantPlan:
+    layers = tuple(
+        LayerPlan(i, f"model.layers.{i}", 4, 64, round(i / 9, 2))
+        for i in range(10)
+    )
+    return QuantPlan(
+        model_id="test/model-1B", layers=layers,
+        avg_bits=4.0, estimated_size_gb=0.5, target_bits=4,
+    )
+
+
+class TestMLXPackerMixedQuant:
+    def test_package_includes_mixed_quant_when_plan_provided(self, tmp_path):
+        quant_path = tmp_path / "quantized"
+        quant_path.mkdir()
+        (quant_path / "model.safetensors").write_bytes(b"\x00" * 2048)
+        (quant_path / "config.json").write_text('{"model_type": "llama"}')
+
+        output_base = tmp_path / "atlas-output"
+        packer = MLXPacker(output_base=output_base)
+        result = packer.package(
+            quantized_path=quant_path,
+            model_id="test/model-1B",
+            quant_result=_make_quant_result(tmp_path),
+            eval_result=_make_eval_result(),
+            hardware=_make_hardware_spec(),
+            quant_plan=_make_quant_plan(),
+        )
+
+        meta = json.loads((result.output_path / "metadata.json").read_text())
+        assert "mixed_quant" in meta
+        assert meta["mixed_quant"]["avg_bits"] == 4.0
+        assert len(meta["mixed_quant"]["layers"]) == 10
+        assert meta["mixed_quant"]["layers"][0] == {"layer_index": 0, "bits": 4}
+
+    def test_package_omits_mixed_quant_when_plan_is_none(self, tmp_path):
+        quant_path = tmp_path / "quantized"
+        quant_path.mkdir()
+        (quant_path / "model.safetensors").write_bytes(b"\x00" * 2048)
+        (quant_path / "config.json").write_text('{"model_type": "llama"}')
+
+        output_base = tmp_path / "atlas-output"
+        packer = MLXPacker(output_base=output_base)
+        result = packer.package(
+            quantized_path=quant_path,
+            model_id="test/model-1B",
+            quant_result=_make_quant_result(tmp_path),
+            eval_result=_make_eval_result(),
+            hardware=_make_hardware_spec(),
+        )
+
+        meta = json.loads((result.output_path / "metadata.json").read_text())
+        assert "mixed_quant" not in meta

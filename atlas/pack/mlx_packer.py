@@ -15,6 +15,7 @@ from typing import Optional
 from atlas.quant.mlx_quantizer import QuantResult
 from atlas.eval.perplexity import EvalResult
 from atlas.profile.hardware import HardwareSpec
+from atlas.plan.planner import QuantPlan
 
 ATLAS_VERSION = "0.1.0"
 
@@ -39,6 +40,7 @@ class MLXPacker:
         quant_result: QuantResult,
         eval_result: EvalResult,
         hardware: HardwareSpec,
+        quant_plan: Optional[QuantPlan] = None,
     ) -> PackageInfo:
         model_name = model_id.split("/")[-1] if "/" in model_id else model_id
         dir_name = f"{model_name}-{quant_result.bits}bit-atlas"
@@ -73,6 +75,15 @@ class MLXPacker:
             },
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+
+        if quant_plan is not None:
+            metadata["mixed_quant"] = {
+                "avg_bits": quant_plan.avg_bits,
+                "layers": [
+                    {"layer_index": lp.layer_index, "bits": lp.bits}
+                    for lp in quant_plan.layers
+                ],
+            }
 
         (output_dir / "metadata.json").write_text(
             json.dumps(metadata, indent=2, ensure_ascii=False)
