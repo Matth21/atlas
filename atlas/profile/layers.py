@@ -1,10 +1,16 @@
 """Per-layer activation sensitivity profiling for Atlas.
 
-Runs calibration data through a model and records the L2 norm of each
-transformer layer's output activations. Layers with higher activation
-norms are treated as more sensitive to quantization error, and their
-normalized sensitivity score feeds into the QuantPlanner's bit allocation
-decisions (Phase 2 mixed-bit quantization).
+Runs calibration data through a model and records, for each transformer
+layer, how much that layer changes the residual stream relative to the
+stream's own incoming magnitude: ``|out_norm - in_norm| / in_norm``. Raw
+residual-stream L2 norms grow near-monotonically with depth (pure
+accumulation), so scoring on raw norm would always flag the deepest
+layers as "most sensitive" regardless of what each layer actually does.
+Normalizing by each layer's own input norm removes that depth bias and
+scores the layer's actual contribution instead. Layers with a higher
+relative-growth score are treated as more sensitive to quantization
+error, and their normalized sensitivity score feeds into the
+QuantPlanner's bit allocation decisions (Phase 2 mixed-bit quantization).
 """
 
 import json
@@ -134,7 +140,7 @@ def _compute_layer_norms(
     model, tokenizer = mlx_lm_load(model_id)
 
     num_layers = len(model.model.layers)
-    layer_norms = [0.0] * num_layers
+    layer_relative_growth = [0.0] * num_layers
     total_tokens = 0
 
     for text in samples:
@@ -143,12 +149,16 @@ def _compute_layer_norms(
             continue
         input_ids = mx.array(tokens)[None, :]
 
-        # Capture activations by running through layers manually
+        # Capture activations by running through layers manually, scoring
+        # each layer's output change relative to its own input magnitude
+        # so the score doesn't just track residual-stream accumulation.
         x = model.model.embed_tokens(input_ids)
         for i, layer in enumerate(model.model.layers):
+            input_norm = mx.sqrt(mx.sum(x * x)).item()
             x = layer(x, cache=None)
-            norm = mx.sqrt(mx.sum(x * x)).item()
-            layer_norms[i] += norm
+            output_norm = mx.sqrt(mx.sum(x * x)).item()
+            denom = input_norm if input_norm > 1e-8 else 1.0
+            layer_relative_growth[i] += abs(output_norm - input_norm) / denom
 
         total_tokens += 1
 
@@ -156,6 +166,6 @@ def _compute_layer_norms(
         return []
 
     return [
-        (f"model.layers.{i}", layer_norms[i] / total_tokens)
+        (f"model.layers.{i}", layer_relative_growth[i] / total_tokens)
         for i in range(num_layers)
     ]
