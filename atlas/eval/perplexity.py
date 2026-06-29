@@ -71,7 +71,7 @@ def _compute_perplexity(model_path: str, samples: list[str]) -> float:
         targets = mx.array(tokens[1:])
 
         logits = model(input_ids)
-        logits = logits.squeeze(0)
+        logits = logits.squeeze(0).astype(mx.float32)
 
         loss = nn.losses.cross_entropy(logits, targets, reduction="sum")
         total_loss += loss.item()

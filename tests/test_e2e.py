@@ -19,6 +19,7 @@ class TestEndToEnd:
             target="auto",
             quality=99.0,
             output_format="mlx",
+            mode="uniform",
         )
 
         # Model should fit in memory (1.1B is tiny)
@@ -54,3 +55,42 @@ class TestEndToEnd:
         # Verify safetensors files exist
         safetensors_files = list(pi.output_path.glob("*.safetensors"))
         assert len(safetensors_files) > 0
+
+
+@pytest.mark.slow
+class TestMixedModeE2E:
+    def test_mixed_quantization_tinyllama(self, tmp_path):
+        """Full mixed quantization on TinyLlama — profile, plan, quantize, eval, pack."""
+        pipeline = Pipeline()
+        from atlas.pack.mlx_packer import MLXPacker
+        pipeline._packer = MLXPacker(output_base=tmp_path / "output")
+
+        result = pipeline.run(
+            model_id="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+            target="auto",
+            quality=99.0,
+            output_format="mlx",
+            mode="mixed",
+        )
+
+        assert result.fits_in_memory
+        assert result.quant_plan is not None
+        assert len(result.quant_plan.layers) == 22
+
+        # Verify mixed bits — not all layers should have the same bit width
+        bit_widths = set(lp.bits for lp in result.quant_plan.layers)
+        assert len(bit_widths) > 1, "Mixed mode should produce different bit widths"
+
+        # Eval happened
+        er = result.eval_result
+        assert er is not None
+        assert er.ppl_quantized > 0
+        assert er.ppl_delta_pct < 50
+
+        # Package produced
+        pi = result.package_info
+        assert pi is not None
+        assert pi.output_path.exists()
+
+        meta = json.loads((pi.output_path / "metadata.json").read_text())
+        assert meta["atlas_version"] == "0.1.0"
