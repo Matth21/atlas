@@ -230,7 +230,7 @@ def _compute_layer_entropies(
         x = model.model.embed_tokens(input_ids)
         for i, layer in enumerate(model.model.layers):
             x = layer(x, cache=None)
-            arr = np.array(x.flatten().tolist(), dtype=np.float32)
+            arr = np.array(x.flatten(), dtype=np.float32)
             counts, _ = np.histogram(arr, bins=256)
             total_count = counts.sum()
             if total_count == 0:
