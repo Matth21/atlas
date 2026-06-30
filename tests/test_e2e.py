@@ -1,8 +1,10 @@
 import json
 import math
+from pathlib import Path
+
 import pytest
 
-from atlas.core.pipeline import Pipeline
+from atlas.core.pipeline import Pipeline, CompressionResult
 
 
 @pytest.mark.slow
@@ -110,8 +112,8 @@ class TestPhase25AblationE2E:
     MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 
     def _run_variant(
-        self, tmp_path, metric: str, enable_compensation: bool
-    ):
+        self, tmp_path: Path, metric: str, enable_compensation: bool
+    ) -> CompressionResult:
         pipeline = Pipeline()
         from atlas.pack.mlx_packer import MLXPacker
         pipeline._packer = MLXPacker(output_base=tmp_path / "output")
@@ -123,7 +125,7 @@ class TestPhase25AblationE2E:
             enable_compensation=enable_compensation,
         )
 
-    def test_variant_a_baseline(self, tmp_path):
+    def test_variant_a_baseline(self, tmp_path: Path) -> None:
         """Variante A: relative_growth, no compensation. Atteso ~+13.27%."""
         result = self._run_variant(tmp_path, "relative_growth", False)
         assert result.fits_in_memory
@@ -131,21 +133,21 @@ class TestPhase25AblationE2E:
         assert er is not None
         assert er.ppl_delta_pct < 50  # sanity bound
 
-    def test_variant_b_entropy_only(self, tmp_path):
+    def test_variant_b_entropy_only(self, tmp_path: Path) -> None:
         """Variante B: entropy, no compensation. Deve migliorare vs A."""
         result = self._run_variant(tmp_path, "entropy", False)
         er = result.eval_result
         assert er is not None
         assert er.ppl_delta_pct < 50
 
-    def test_variant_c_compensation_only(self, tmp_path):
+    def test_variant_c_compensation_only(self, tmp_path: Path) -> None:
         """Variante C: relative_growth + compensation. Deve migliorare vs A."""
         result = self._run_variant(tmp_path, "relative_growth", True)
         er = result.eval_result
         assert er is not None
         assert er.ppl_delta_pct < 50
 
-    def test_variant_d_full_target(self, tmp_path):
+    def test_variant_d_full_target(self, tmp_path: Path) -> None:
         """Variante D: entropy + compensation. Target: PPL delta <= +10% (conservative bound)."""
         result = self._run_variant(tmp_path, "entropy", True)
         er = result.eval_result
@@ -158,7 +160,7 @@ class TestPhase25AblationE2E:
             f"Baseline: {er.ppl_baseline:.2f}, Quantizzato: {er.ppl_quantized:.2f}"
         )
 
-    def test_ablation_d_beats_a(self, tmp_path):
+    def test_ablation_d_beats_a(self, tmp_path: Path) -> None:
         """Variante D deve avere PPL delta inferiore alla variante A (baseline)."""
         result_a = self._run_variant(tmp_path / "a", "relative_growth", False)
         result_d = self._run_variant(tmp_path / "d", "entropy", True)
