@@ -94,3 +94,75 @@ class TestMixedModeE2E:
 
         meta = json.loads((pi.output_path / "metadata.json").read_text())
         assert meta["atlas_version"] == "0.1.0"
+
+
+@pytest.mark.slow
+class TestPhase25AblationE2E:
+    """Ablation study: 4 varianti su TinyLlama per misurare contributo di
+    entropy metric e error compensation separatamente e in combinazione.
+
+    Variante A: relative_growth + no compensation (baseline Phase 2.1)
+    Variante B: entropy + no compensation
+    Variante C: relative_growth + compensation
+    Variante D: entropy + compensation (target: PPL delta <= +10%)
+    """
+
+    MODEL_ID = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+
+    def _run_variant(
+        self, tmp_path, metric: str, enable_compensation: bool
+    ):
+        pipeline = Pipeline()
+        from atlas.pack.mlx_packer import MLXPacker
+        pipeline._packer = MLXPacker(output_base=tmp_path / "output")
+        return pipeline.run(
+            model_id=self.MODEL_ID,
+            target="auto", quality=99.0, output_format="mlx",
+            mode="mixed",
+            metric=metric,
+            enable_compensation=enable_compensation,
+        )
+
+    def test_variant_a_baseline(self, tmp_path):
+        """Variante A: relative_growth, no compensation. Atteso ~+13.27%."""
+        result = self._run_variant(tmp_path, "relative_growth", False)
+        assert result.fits_in_memory
+        er = result.eval_result
+        assert er is not None
+        assert er.ppl_delta_pct < 50  # sanity bound
+
+    def test_variant_b_entropy_only(self, tmp_path):
+        """Variante B: entropy, no compensation. Deve migliorare vs A."""
+        result = self._run_variant(tmp_path, "entropy", False)
+        er = result.eval_result
+        assert er is not None
+        assert er.ppl_delta_pct < 50
+
+    def test_variant_c_compensation_only(self, tmp_path):
+        """Variante C: relative_growth + compensation. Deve migliorare vs A."""
+        result = self._run_variant(tmp_path, "relative_growth", True)
+        er = result.eval_result
+        assert er is not None
+        assert er.ppl_delta_pct < 50
+
+    def test_variant_d_full_target(self, tmp_path):
+        """Variante D: entropy + compensation. Target: PPL delta <= +10% (conservative bound)."""
+        result = self._run_variant(tmp_path, "entropy", True)
+        er = result.eval_result
+        assert er is not None
+        assert result.metric == "entropy"
+        assert result.enable_compensation is True
+        # Target principale: PPL delta <= +10% (conservative bound for Phase 2.5)
+        assert er.ppl_delta_pct <= 10.0, (
+            f"Phase 2.5 target non raggiunto: PPL delta {er.ppl_delta_pct:.2f}% > 10%. "
+            f"Baseline: {er.ppl_baseline:.2f}, Quantizzato: {er.ppl_quantized:.2f}"
+        )
+
+    def test_ablation_d_beats_a(self, tmp_path):
+        """Variante D deve avere PPL delta inferiore alla variante A (baseline)."""
+        result_a = self._run_variant(tmp_path / "a", "relative_growth", False)
+        result_d = self._run_variant(tmp_path / "d", "entropy", True)
+        assert result_d.eval_result.ppl_delta_pct < result_a.eval_result.ppl_delta_pct, (
+            f"D ({result_d.eval_result.ppl_delta_pct:.2f}%) non migliora su "
+            f"A ({result_a.eval_result.ppl_delta_pct:.2f}%)"
+        )
