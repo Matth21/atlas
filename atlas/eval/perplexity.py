@@ -23,7 +23,7 @@ class PerplexityEval:
         quantized_path: Path,
         model_id: str,
         num_samples: int = 100,
-        bias_corrections: "tuple[mx.array, ...] | None" = None,
+        bias_corrections: tuple[mx.array, ...] | None = None,
     ) -> EvalResult:
         if num_samples <= 0:
             raise ValueError(f"num_samples must be > 0, got {num_samples}")

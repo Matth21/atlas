@@ -87,7 +87,6 @@ class TestPerplexityEvalWithCompensation:
 
     def test_evaluate_without_bias_uses_standard_path(self):
         from unittest.mock import patch
-        from pathlib import Path
 
         evaluator = PerplexityEval()
         with patch("atlas.eval.perplexity._load_wikitext_samples", return_value=["hello world"]), \
