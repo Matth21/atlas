@@ -4,8 +4,6 @@ Dopo quantizzazione layer N, calcola bias correttivo per-canale
 (media dell'errore su batch e sequenza) applicato all'input di layer N+1.
 """
 
-from dataclasses import dataclass
-
 import mlx.core as mx
 
 
