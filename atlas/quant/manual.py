@@ -44,7 +44,7 @@ class ManualLayerQuantizer:
         bias_corrections = None
         if enable_compensation:
             bias_corrections = _compute_bias_corrections(
-                model_id, mixed_result.output_path, plan
+                model_id, mixed_result.output_path
             )
 
         return ManualQuantResult(
@@ -59,7 +59,6 @@ class ManualLayerQuantizer:
 def _compute_bias_corrections(
     model_id: str,
     quantized_path: Path,
-    plan: QuantPlan,
     num_samples: int = 5,
 ) -> tuple[mx.array, ...]:
     """Calibration pass: calcola bias correttivo per-layer da errori di quantizzazione.

@@ -66,7 +66,7 @@ class LayerProfiler:
                 f"metric must be 'relative_growth' or 'entropy', got {metric!r}"
             )
 
-        cached = self._load_cache(model_id, num_samples)
+        cached = self._load_cache(model_id, num_samples, metric)
         if cached is not None:
             return cached
 
@@ -102,21 +102,22 @@ class LayerProfiler:
             sensitivities=sensitivities,
             calibration_samples=len(samples),
         )
-        self._save_cache(result)
+        self._save_cache(result, metric)
         return result
 
-    def _cache_path(self, model_id: str) -> Path:
+    def _cache_path(self, model_id: str, metric: str = "entropy") -> Path:
         safe_name = model_id.replace("/", "_")
-        return CACHE_DIR / safe_name / "layer_profile.json"
+        return CACHE_DIR / safe_name / f"layer_profile_{metric}.json"
 
-    def _load_cache(self, model_id: str, num_samples: int) -> LayerProfile | None:
-        path = self._cache_path(model_id)
+    def _load_cache(self, model_id: str, num_samples: int, metric: str = "entropy") -> LayerProfile | None:
+        path = self._cache_path(model_id, metric)
         if not path.exists():
             return None
         try:
             data = json.loads(path.read_text())
             if (
                 data.get("algo_version") == ALGO_VERSION
+                and data.get("metric") == metric
                 and data.get("calibration_samples", 0) >= num_samples
             ):
                 sensitivities = tuple(
@@ -139,11 +140,12 @@ class LayerProfiler:
             pass
         return None
 
-    def _save_cache(self, profile: LayerProfile) -> None:
-        path = self._cache_path(profile.model_id)
+    def _save_cache(self, profile: LayerProfile, metric: str = "entropy") -> None:
+        path = self._cache_path(profile.model_id, metric)
         path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "algo_version": ALGO_VERSION,
+            "metric": metric,
             "model_id": profile.model_id,
             "num_layers": profile.num_layers,
             "calibration_samples": profile.calibration_samples,
