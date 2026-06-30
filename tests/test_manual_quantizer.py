@@ -39,9 +39,10 @@ class TestManualQuantResult:
 
         with patch("atlas.quant.manual.MixedQuantizer") as MockMixed:
             MockMixed.return_value.quantize.return_value = fake_mixed_result
-            with patch("atlas.quant.manual._compute_bias_corrections", return_value=None):
+            with patch("atlas.quant.manual._compute_bias_corrections") as mock_compute:
                 result = quantizer.quantize("test/model", plan, enable_compensation=False)
 
+        mock_compute.assert_not_called()
         assert result.bias_corrections is None
 
     def test_bias_corrections_present_when_enabled(self):
