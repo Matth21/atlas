@@ -50,6 +50,7 @@ class Pipeline:
         dry_run: bool = False,
         metric: str = "entropy",
         enable_compensation: bool = True,
+        smooth_alpha: float = 0.5,
     ) -> CompressionResult:
         hardware = self._profiler.detect()
         usable_gb = self._profiler.usable_memory_gb()
@@ -71,7 +72,9 @@ class Pipeline:
                     layer_profile, int(target_bits), model_info, usable_gb
                 )
                 manual_result = self._manual_quantizer.quantize(
-                    model_id, quant_plan, enable_compensation=enable_compensation
+                    model_id, quant_plan,
+                    enable_compensation=enable_compensation,
+                    smooth_alpha=smooth_alpha,
                 )
 
                 eval_result = self._evaluator.evaluate(

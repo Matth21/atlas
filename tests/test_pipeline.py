@@ -395,17 +395,15 @@ class TestPipelinePhase25Params:
 
         mock_profile.assert_called_once_with("test/tiny-1B", metric="entropy")
 
-    def test_bias_corrections_passed_to_evaluator(self):
-        """Pipeline.run() deve passare bias_corrections al valutatore."""
-        import mlx.core as mx
+    def test_bias_corrections_none_passed_to_evaluator(self):
+        """Pipeline.run() passa bias_corrections=None al valutatore (SmoothQuant bakes corrections)."""
         pipeline = Pipeline()
-        fake_corrections = (mx.zeros((64,)), mx.zeros((64,)))
         manual_result = ManualQuantResult(
             output_path=Path("/tmp/manual"),
             plan=_mock_quant_plan(),
             quantized_size_mb=500.0,
             original_size_mb=2000.0,
-            bias_corrections=fake_corrections,
+            bias_corrections=None,
         )
 
         from atlas.profile.layers import LayerProfile, LayerSensitivity
@@ -430,4 +428,4 @@ class TestPipelinePhase25Params:
             pipeline.run("test/tiny-1B", "auto", 99.0, "mlx", mode="mixed")
 
         call_kwargs = mock_eval.call_args
-        assert call_kwargs.kwargs.get("bias_corrections") is fake_corrections
+        assert call_kwargs.kwargs.get("bias_corrections") is None
