@@ -11,6 +11,11 @@ scores the layer's actual contribution instead. Layers with a higher
 relative-growth score are treated as more sensitive to quantization
 error, and their normalized sensitivity score feeds into the
 QuantPlanner's bit allocation decisions (Phase 2 mixed-bit quantization).
+
+As of ALGO_VERSION 3, an alternative entropy-based metric is also
+available: ``metric="entropy"`` computes Shannon entropy of each layer's
+activations as a proxy for information density. High entropy layers carry
+more information and are therefore more sensitive to quantization loss.
 """
 
 import json
@@ -23,11 +28,12 @@ from mlx_lm import load as mlx_lm_load
 
 CACHE_DIR = Path.home() / ".cache" / "atlas"
 
-# Bumped whenever the scoring algorithm in _compute_layer_norms changes
-# semantics. Cached profiles written under an older version are treated
-# as a cache miss and recomputed, instead of being silently reused with
-# the wrong meaning.
-ALGO_VERSION = 2
+# Bumped whenever the scoring algorithm changes semantics. Cached profiles
+# written under an older version are treated as a cache miss and recomputed,
+# instead of being silently reused with the wrong meaning.
+# v2: relative residual-stream growth metric
+# v3: added entropy metric; optional entropy_score field on LayerSensitivity
+ALGO_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -36,6 +42,7 @@ class LayerSensitivity:
     name: str
     relative_growth: float
     sensitivity_score: float
+    entropy_score: float | None = None  # None se metric == "relative_growth"
 
 
 @dataclass(frozen=True)
@@ -49,33 +56,44 @@ class LayerProfile:
 class LayerProfiler:
     """Measures per-layer activation sensitivity via calibration data."""
 
-    def profile(self, model_id: str, num_samples: int = 64) -> LayerProfile:
+    def profile(
+        self, model_id: str, num_samples: int = 64, metric: str = "entropy"
+    ) -> LayerProfile:
         if num_samples <= 0:
             raise ValueError(f"num_samples must be > 0, got {num_samples}")
+        if metric not in ("relative_growth", "entropy"):
+            raise ValueError(
+                f"metric must be 'relative_growth' or 'entropy', got {metric!r}"
+            )
 
         cached = self._load_cache(model_id, num_samples)
         if cached is not None:
             return cached
 
         samples = _load_calibration_samples(num_samples)
-        layer_norms = _compute_layer_norms(model_id, samples)
 
-        if not layer_norms:
+        if metric == "entropy":
+            raw_scores = _compute_layer_entropies(model_id, samples)
+        else:
+            raw_scores = _compute_layer_norms(model_id, samples)
+
+        if not raw_scores:
             raise RuntimeError(f"No layers found in model {model_id}")
 
-        norms = [n for _, n in layer_norms]
-        min_norm = min(norms)
-        max_norm = max(norms)
-        norm_range = max_norm - min_norm if max_norm > min_norm else 1.0
+        scores = [s for _, s in raw_scores]
+        min_s = min(scores)
+        max_s = max(scores)
+        score_range = max_s - min_s if max_s > min_s else 1.0
 
         sensitivities = tuple(
             LayerSensitivity(
                 layer_index=i,
                 name=name,
-                relative_growth=round(norm, 4),
-                sensitivity_score=round((norm - min_norm) / norm_range, 4),
+                relative_growth=round(score, 4) if metric == "relative_growth" else 0.0,
+                sensitivity_score=round((score - min_s) / score_range, 4),
+                entropy_score=round(score, 4) if metric == "entropy" else None,
             )
-            for i, (name, norm) in enumerate(layer_norms)
+            for i, (name, score) in enumerate(raw_scores)
         )
 
         result = LayerProfile(
@@ -84,7 +102,6 @@ class LayerProfiler:
             sensitivities=sensitivities,
             calibration_samples=len(samples),
         )
-
         self._save_cache(result)
         return result
 
@@ -103,7 +120,14 @@ class LayerProfiler:
                 and data.get("calibration_samples", 0) >= num_samples
             ):
                 sensitivities = tuple(
-                    LayerSensitivity(**s) for s in data["sensitivities"]
+                    LayerSensitivity(
+                        layer_index=s["layer_index"],
+                        name=s["name"],
+                        relative_growth=s["relative_growth"],
+                        sensitivity_score=s["sensitivity_score"],
+                        entropy_score=s.get("entropy_score"),
+                    )
+                    for s in data["sensitivities"]
                 )
                 return LayerProfile(
                     model_id=data["model_id"],
@@ -129,6 +153,7 @@ class LayerProfiler:
                     "name": s.name,
                     "relative_growth": s.relative_growth,
                     "sensitivity_score": s.sensitivity_score,
+                    "entropy_score": s.entropy_score,
                 }
                 for s in profile.sensitivities
             ],
@@ -147,6 +172,7 @@ def _load_calibration_samples(num_samples: int) -> list[str]:
 def _compute_layer_norms(
     model_id: str, samples: list[str]
 ) -> list[tuple[str, float]]:
+    """Misura crescita relativa del residual stream per layer (Phase 2.1)."""
     model, tokenizer = mlx_lm_load(model_id)
 
     num_layers = len(model.model.layers)
@@ -177,5 +203,46 @@ def _compute_layer_norms(
 
     return [
         (f"model.layers.{i}", layer_relative_growth[i] / total_tokens)
+        for i in range(num_layers)
+    ]
+
+
+def _compute_layer_entropies(
+    model_id: str, samples: list[str]
+) -> list[tuple[str, float]]:
+    """Shannon entropy delle attivazioni per layer: H = -Σ p·log2(p).
+
+    Alta entropia = layer trasporta più informazione = più sensibile a quantizzazione.
+    Usa numpy per il calcolo dell'istogramma (MLX non ha mx.histogram stabile).
+    """
+    import numpy as np
+
+    model, tokenizer = mlx_lm_load(model_id)
+    num_layers = len(model.model.layers)
+    layer_entropies = [0.0] * num_layers
+    total = 0
+
+    for text in samples:
+        tokens = tokenizer.encode(text)
+        if len(tokens) < 2:
+            continue
+        input_ids = mx.array(tokens)[None, :]
+        x = model.model.embed_tokens(input_ids)
+        for i, layer in enumerate(model.model.layers):
+            x = layer(x, cache=None)
+            arr = np.array(x.flatten().tolist(), dtype=np.float32)
+            counts, _ = np.histogram(arr, bins=256)
+            total_count = counts.sum()
+            if total_count == 0:
+                continue
+            p = counts[counts > 0] / total_count
+            layer_entropies[i] += float(-np.sum(p * np.log2(p)))
+        total += 1
+
+    if total == 0:
+        return []
+
+    return [
+        (f"model.layers.{i}", layer_entropies[i] / total)
         for i in range(num_layers)
     ]

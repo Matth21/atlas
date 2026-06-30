@@ -1,3 +1,4 @@
+import json
 import pytest
 from unittest.mock import patch, MagicMock
 import mlx.core as mx
@@ -26,6 +27,21 @@ class TestLayerSensitivity:
         )
         with pytest.raises(AttributeError):
             ls.sensitivity_score = 0.5
+
+    def test_entropy_score_field_optional(self):
+        ls = LayerSensitivity(
+            layer_index=0, name="model.layers.0",
+            relative_growth=0.0, sensitivity_score=0.5,
+        )
+        assert ls.entropy_score is None
+
+    def test_entropy_score_field_set(self):
+        ls = LayerSensitivity(
+            layer_index=0, name="model.layers.0",
+            relative_growth=0.0, sensitivity_score=0.5,
+            entropy_score=3.14,
+        )
+        assert ls.entropy_score == 3.14
 
 
 class TestLayerProfile:
@@ -63,7 +79,7 @@ class TestLayerProfiler:
         ]
 
         profiler = LayerProfiler()
-        result = profiler.profile("test/model", num_samples=10)
+        result = profiler.profile("test/model", num_samples=10, metric="relative_growth")
 
         assert isinstance(result, LayerProfile)
         assert result.num_layers == 4
@@ -110,3 +126,43 @@ class TestLayerProfiler:
         assert scores[0] == pytest.approx(1.0)
         assert scores[1] == pytest.approx(0.5)
         assert scores[2] == pytest.approx(1 / 3)
+
+
+class TestLayerProfilerEntropyMetric:
+    def test_unknown_metric_raises(self):
+        profiler = LayerProfiler()
+        with pytest.raises(ValueError, match="metric"):
+            with patch("atlas.profile.layers._compute_layer_entropies") as m:
+                m.return_value = []
+                profiler.profile("any/model", metric="unknown")
+
+    def test_entropy_profile_has_entropy_scores(self):
+        profiler = LayerProfiler()
+        fake_entropies = [("model.layers.0", 2.5), ("model.layers.1", 3.1)]
+        fake_samples = ["hello world", "test text with more tokens here"]
+
+        with patch("atlas.profile.layers._load_calibration_samples", return_value=fake_samples), \
+             patch("atlas.profile.layers._compute_layer_entropies", return_value=fake_entropies), \
+             patch.object(profiler, "_load_cache", return_value=None), \
+             patch.object(profiler, "_save_cache"):
+            profile = profiler.profile("test/model", metric="entropy")
+
+        assert len(profile.sensitivities) == 2
+        assert profile.sensitivities[0].entropy_score == 2.5
+        assert profile.sensitivities[1].entropy_score == 3.1
+        assert profile.sensitivities[1].sensitivity_score == 1.0  # normalizzato
+
+    def test_cache_invalidated_by_algo_version(self, tmp_path):
+        profiler = LayerProfiler()
+        cache_path = tmp_path / "layer_profile.json"
+        cache_path.write_text(json.dumps({
+            "algo_version": 2,  # vecchia versione
+            "model_id": "test/model", "num_layers": 1,
+            "calibration_samples": 64,
+            "sensitivities": [{"layer_index": 0, "name": "model.layers.0",
+                                "relative_growth": 1.0, "sensitivity_score": 1.0,
+                                "entropy_score": None}]
+        }))
+        with patch.object(profiler, "_cache_path", return_value=cache_path):
+            result = profiler._load_cache("test/model", 64)
+        assert result is None  # cache miss: versione diversa
