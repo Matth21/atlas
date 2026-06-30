@@ -65,3 +65,35 @@ class TestPerplexityEval:
         evaluator = PerplexityEval()
         result = evaluator.evaluate(Path("/fake"), "model", num_samples=5)
         assert math.isinf(result.ppl_delta_pct)
+
+
+class TestPerplexityEvalWithCompensation:
+    def test_evaluate_accepts_bias_corrections_param(self):
+        """evaluate() deve accettare bias_corrections senza errori."""
+        import mlx.core as mx
+        from unittest.mock import patch
+
+        evaluator = PerplexityEval()
+        fake_biases = (mx.zeros((64,)), mx.zeros((64,)))
+
+        with patch("atlas.eval.perplexity._load_wikitext_samples", return_value=["hello world test"]), \
+             patch("atlas.eval.perplexity._compute_perplexity", return_value=10.0), \
+             patch("atlas.eval.perplexity._compute_perplexity_with_corrections", return_value=11.0) as mock_comp:
+            result = evaluator.evaluate(Path("/tmp/q"), "test/model",
+                                        num_samples=1, bias_corrections=fake_biases)
+
+        mock_comp.assert_called_once()
+        assert result.ppl_quantized == 11.0
+
+    def test_evaluate_without_bias_uses_standard_path(self):
+        from unittest.mock import patch
+        from pathlib import Path
+
+        evaluator = PerplexityEval()
+        with patch("atlas.eval.perplexity._load_wikitext_samples", return_value=["hello world"]), \
+             patch("atlas.eval.perplexity._compute_perplexity", return_value=10.0) as mock_std, \
+             patch("atlas.eval.perplexity._compute_perplexity_with_corrections") as mock_comp:
+            evaluator.evaluate(Path("/tmp/q"), "test/model", num_samples=1)
+
+        mock_comp.assert_not_called()
+        assert mock_std.call_count == 2  # baseline + quantized
