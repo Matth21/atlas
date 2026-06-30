@@ -216,7 +216,6 @@ class TestPipelineRun:
 
 
 from atlas.plan.planner import QuantPlan, LayerPlan
-from atlas.quant.mixed import MixedQuantResult
 from atlas.quant.manual import ManualQuantResult
 
 
@@ -228,15 +227,6 @@ def _mock_quant_plan():
     return QuantPlan(
         model_id="test/tiny-1B", layers=layers,
         avg_bits=4.0, estimated_size_gb=0.5, target_bits=4,
-    )
-
-
-def _mock_mixed_quant_result():
-    return MixedQuantResult(
-        output_path=Path("/tmp/mixed"),
-        plan=_mock_quant_plan(),
-        quantized_size_mb=500.0,
-        original_size_mb=2000.0,
     )
 
 
