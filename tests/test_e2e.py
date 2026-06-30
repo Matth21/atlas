@@ -148,16 +148,71 @@ class TestPhase25AblationE2E:
         assert er.ppl_delta_pct < 50
 
     def test_variant_d_full_target(self, tmp_path: Path) -> None:
-        """Variante D: entropy + SmoothQuant. Target: PPL delta <= +13% (alpha=0.5 su TinyLlama)."""
+        """Variante D: entropy + SmoothQuant + quality_mode. Target: PPL delta <= +5%.
+
+        Phase 2.6 (quality_mode=True, no 2-bit, top 20% a 8-bit): +1.67% su TinyLlama.
+        Target ≤5% lascia margine per variabilità campionamento (100 sample wikitext).
+        """
         result = self._run_variant(tmp_path, "entropy", True)
         er = result.eval_result
         assert er is not None
         assert result.metric == "entropy"
         assert result.enable_compensation is True
-        # Target: PPL delta <= 13% — SmoothQuant(alpha=0.5) raggiunge ~12.35% su TinyLlama,
-        # migliorando rispetto al baseline Phase 2.1 (+13.27%).
-        assert er.ppl_delta_pct <= 13.0, (
-            f"Phase 2.5 target non raggiunto: PPL delta {er.ppl_delta_pct:.2f}% > 13%. "
+        assert er.ppl_delta_pct <= 5.0, (
+            f"Phase 2.6 target non raggiunto: PPL delta {er.ppl_delta_pct:.2f}% > 5%. "
+            f"Baseline: {er.ppl_baseline:.2f}, Quantizzato: {er.ppl_quantized:.2f}"
+        )
+
+    def test_variant_e_sgsr_target(self, tmp_path: Path) -> None:
+        """Variante E: SGSR (entropy + SmoothQuant + group_size redistribution).
+
+        Tutti i layer a 4-bit, group_size variabile per sensitivity tier.
+        Target: PPL delta <= +4.34% (uniform 4-bit) con budget ~uguale (4.511 vs 4.501 bit/w).
+        Sweep ottimale: fine15%/coarse25% → +3.28% su TinyLlama.
+        """
+        pipeline = Pipeline()
+        from atlas.pack.mlx_packer import MLXPacker
+        pipeline._packer = MLXPacker(output_base=tmp_path / "output")
+        result = pipeline.run(
+            model_id=self.MODEL_ID,
+            target="auto", quality=99.0, output_format="mlx",
+            mode="mixed", metric="entropy", enable_compensation=True, sgsr_mode=True,
+        )
+        er = result.eval_result
+        assert er is not None
+        assert result.sgsr_mode is True
+        # Tutti i layer devono restare a 4-bit (no promozione a 8-bit in sgsr_mode)
+        assert all(lp.bits == 4 for lp in result.quant_plan.layers)
+        # group_size deve essere misto (almeno 2 valori distinti)
+        gs_values = set(lp.group_size for lp in result.quant_plan.layers)
+        assert len(gs_values) >= 2
+        # Target: batte uniform 4-bit (+4.34%) — confronto equo a ~stesso bit budget
+        assert er.ppl_delta_pct <= 4.34, (
+            f"SGSR non batte uniform 4-bit: {er.ppl_delta_pct:.2f}% > 4.34%. "
+            f"Baseline: {er.ppl_baseline:.2f}, Quantizzato: {er.ppl_quantized:.2f}"
+        )
+
+    def test_variant_f_qi_smooth_target(self, tmp_path: Path) -> None:
+        """Variante F: QI-SmoothQuant (quality_mode + entropy + QI error refinement).
+
+        Due-pass: SmoothQuant → simula errore quantizzazione → raffina scale → ri-applica.
+        Algoritmo novel: nessun paper combina quantization-error-feedback con SmoothQuant.
+        Target: PPL delta <= +3.0% (su TinyLlama con modello piccolo e pochi outlier).
+        """
+        pipeline = Pipeline()
+        from atlas.pack.mlx_packer import MLXPacker
+        pipeline._packer = MLXPacker(output_base=tmp_path / "output")
+        result = pipeline.run(
+            model_id=self.MODEL_ID,
+            target="auto", quality=99.0, output_format="mlx",
+            mode="mixed", metric="entropy", enable_compensation=True,
+            sgsr_mode=False, qi_mode=True, error_lambda=0.3,
+        )
+        er = result.eval_result
+        assert er is not None
+        assert result.qi_mode is True
+        assert er.ppl_delta_pct <= 3.0, (
+            f"QI-SmoothQuant target non raggiunto: PPL delta {er.ppl_delta_pct:.2f}% > 3.0%. "
             f"Baseline: {er.ppl_baseline:.2f}, Quantizzato: {er.ppl_quantized:.2f}"
         )
 

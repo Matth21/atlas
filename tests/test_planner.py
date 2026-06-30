@@ -74,7 +74,26 @@ class TestQuantPlanner:
         model_info = _make_model_info(num_layers=10)
         plan = planner.plan(profile, target_bits=4, model_info=model_info, usable_memory_gb=10.0)
         assert len(plan.layers) == 10
-        assert all(lp.bits in (2, 4, 8) for lp in plan.layers)
+        # quality_mode=True (default) never uses 2-bit
+        assert all(lp.bits in (4, 8) for lp in plan.layers)
+
+    def test_quality_mode_no_2bit(self):
+        """quality_mode=True: nessun layer a 2-bit, top 20% promosso a 8-bit."""
+        planner = QuantPlanner()
+        profile = _make_profile(20)
+        model_info = _make_model_info(num_layers=20)
+        plan = planner.plan(
+            profile, target_bits=4, model_info=model_info,
+            usable_memory_gb=1000.0, quality_mode=True,
+        )
+        # No 2-bit
+        assert all(lp.bits >= 4 for lp in plan.layers)
+        # top 20% of 20 = 4 layers promoted to 8-bit
+        promoted = [lp for lp in plan.layers if lp.bits == 8]
+        assert len(promoted) == 4
+        # promoted are highest-sensitivity layers (indices 16-19)
+        promoted_indices = sorted(lp.layer_index for lp in promoted)
+        assert promoted_indices == [16, 17, 18, 19]
 
     def test_sensitive_layers_get_more_bits(self):
         planner = QuantPlanner()
@@ -102,26 +121,71 @@ class TestQuantPlanner:
         plan = planner.plan(profile, target_bits=4, model_info=model_info, usable_memory_gb=10.0)
         assert plan.estimated_size_gb <= 10.0
 
-    def test_demotion_fraction_is_10_percent(self):
-        # 20 layers -> top 15% = 3 promoted, bottom 10% = 2 demoted,
-        # remaining 15 stay at target_bits (assuming no memory-fit demotions).
-        # Bottom demotion is intentionally narrower than top promotion —
-        # see QuantPlanner docstring for the e2e-PPL-driven rationale.
+    def test_legacy_mode_demotion_fraction_is_10_percent(self):
+        """quality_mode=False (legacy): top 15% promoted, bottom 10% demoted to 2-bit."""
         planner = QuantPlanner()
         profile = _make_profile(20)
         model_info = _make_model_info(num_layers=20)
         plan = planner.plan(
-            profile, target_bits=4, model_info=model_info, usable_memory_gb=1000.0
+            profile, target_bits=4, model_info=model_info,
+            usable_memory_gb=1000.0, quality_mode=False,
         )
         demoted = [lp for lp in plan.layers if lp.bits < 4]
         promoted = [lp for lp in plan.layers if lp.bits > 4]
         assert len(demoted) == 2
         assert len(promoted) == 3
-        # The demoted layers must be the 2 least-sensitive ones (lowest scores).
         demoted_indices = sorted(lp.layer_index for lp in demoted)
         assert demoted_indices == [0, 1]
         promoted_indices = sorted(lp.layer_index for lp in promoted)
         assert promoted_indices == [17, 18, 19]
+
+    def test_sgsr_mode_all_target_bits(self):
+        """sgsr_mode=True: tutti i layer a target_bits, group_size variabile per tier."""
+        planner = QuantPlanner()
+        profile = _make_profile(20)
+        model_info = _make_model_info(num_layers=20)
+        plan = planner.plan(
+            profile, target_bits=4, model_info=model_info,
+            usable_memory_gb=1000.0, sgsr_mode=True,
+        )
+        # Tutti a 4-bit — nessuna promozione/demozione
+        assert all(lp.bits == 4 for lp in plan.layers)
+
+    def test_sgsr_mode_group_size_tiers(self):
+        """sgsr_mode: top 15% → gs=32, bottom 25% → gs=128, resto → gs=64."""
+        from atlas.plan.planner import GROUP_SIZE_FINE, GROUP_SIZE_MID, GROUP_SIZE_COARSE
+        planner = QuantPlanner()
+        profile = _make_profile(20)
+        model_info = _make_model_info(num_layers=20)
+        plan = planner.plan(
+            profile, target_bits=4, model_info=model_info,
+            usable_memory_gb=1000.0, sgsr_mode=True,
+        )
+        # 20 layer: fine_count=max(1, int(20*0.15))=3, coarse_count=max(1, int(20*0.25))=5
+        fine = [lp for lp in plan.layers if lp.group_size == GROUP_SIZE_FINE]
+        coarse = [lp for lp in plan.layers if lp.group_size == GROUP_SIZE_COARSE]
+        mid = [lp for lp in plan.layers if lp.group_size == GROUP_SIZE_MID]
+        assert len(fine) == 3
+        assert len(coarse) == 5
+        assert len(mid) == 12
+        # fine = layer più sensibili (indici alti nel profilo sintetico)
+        fine_indices = sorted(lp.layer_index for lp in fine)
+        assert fine_indices == [17, 18, 19]
+        # coarse = layer meno sensibili (indici bassi)
+        coarse_indices = sorted(lp.layer_index for lp in coarse)
+        assert coarse_indices == [0, 1, 2, 3, 4]
+
+    def test_sgsr_mode_group_size_not_uniform(self):
+        """sgsr_mode produce almeno 2 group_size distinti."""
+        planner = QuantPlanner()
+        profile = _make_profile(10)
+        model_info = _make_model_info(num_layers=10)
+        plan = planner.plan(
+            profile, target_bits=4, model_info=model_info,
+            usable_memory_gb=1000.0, sgsr_mode=True,
+        )
+        gs_values = set(lp.group_size for lp in plan.layers)
+        assert len(gs_values) >= 2
 
     def test_invalid_target_bits(self):
         planner = QuantPlanner()

@@ -26,6 +26,8 @@ class CompressionResult:
     quant_plan: QuantPlan | None = None
     metric: str = "relative_growth"
     enable_compensation: bool = False
+    sgsr_mode: bool = False
+    qi_mode: bool = False
 
 
 class Pipeline:
@@ -51,6 +53,9 @@ class Pipeline:
         metric: str = "entropy",
         enable_compensation: bool = True,
         smooth_alpha: float = 0.5,
+        sgsr_mode: bool = False,
+        qi_mode: bool = False,
+        error_lambda: float = 0.3,
     ) -> CompressionResult:
         hardware = self._profiler.detect()
         usable_gb = self._profiler.usable_memory_gb()
@@ -69,12 +74,15 @@ class Pipeline:
             if mode == "mixed":
                 layer_profile = self._layer_profiler.profile(model_id, metric=metric)
                 quant_plan = self._planner.plan(
-                    layer_profile, int(target_bits), model_info, usable_gb
+                    layer_profile, int(target_bits), model_info, usable_gb,
+                    sgsr_mode=sgsr_mode,
                 )
                 manual_result = self._manual_quantizer.quantize(
                     model_id, quant_plan,
                     enable_compensation=enable_compensation,
                     smooth_alpha=smooth_alpha,
+                    qi_mode=qi_mode,
+                    error_lambda=error_lambda,
                 )
 
                 eval_result = self._evaluator.evaluate(
@@ -126,6 +134,8 @@ class Pipeline:
             quant_plan=quant_plan,
             metric=metric,
             enable_compensation=enable_compensation,
+            sgsr_mode=sgsr_mode,
+            qi_mode=qi_mode,
         )
 
     def _estimate_bits(self, quality: float) -> int:
