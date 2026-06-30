@@ -217,6 +217,7 @@ class TestPipelineRun:
 
 from atlas.plan.planner import QuantPlan, LayerPlan
 from atlas.quant.mixed import MixedQuantResult
+from atlas.quant.manual import ManualQuantResult
 
 
 def _mock_quant_plan():
@@ -240,14 +241,23 @@ def _mock_mixed_quant_result():
 
 
 class TestPipelineMixedMode:
-    def test_mixed_mode_calls_profiler_planner_mixed_quantizer(self):
+    def test_mixed_mode_calls_profiler_planner_manual_quantizer(self):
+        """Phase 2.5: mode='mixed' chiama profiler, planner e ManualLayerQuantizer."""
         pipeline = Pipeline()
+        manual_result = ManualQuantResult(
+            output_path=Path("/tmp/manual"),
+            plan=_mock_quant_plan(),
+            quantized_size_mb=500.0,
+            original_size_mb=2000.0,
+            bias_corrections=None,
+        )
+
         with patch.object(pipeline._profiler, "detect", return_value=_mock_hardware()), \
              patch.object(pipeline._profiler, "usable_memory_gb", return_value=22.4), \
              patch.object(pipeline._loader, "load_metadata", return_value=_mock_model_info()), \
              patch.object(pipeline._layer_profiler, "profile") as mock_profile, \
              patch.object(pipeline._planner, "plan", return_value=_mock_quant_plan()) as mock_plan, \
-             patch.object(pipeline._mixed_quantizer, "quantize", return_value=_mock_mixed_quant_result()), \
+             patch.object(pipeline._manual_quantizer, "quantize", return_value=manual_result), \
              patch.object(pipeline._evaluator, "evaluate", return_value=_mock_eval_result()), \
              patch.object(pipeline._packer, "package", return_value=_mock_package_info()):
 
@@ -267,6 +277,41 @@ class TestPipelineMixedMode:
         mock_plan.assert_called_once()
         assert result.quant_plan is not None
 
+    def test_mixed_mode_calls_manual_quantizer_not_mixed(self):
+        """Phase 2.5: mode='mixed' deve usare ManualLayerQuantizer, non MixedQuantizer."""
+        pipeline = Pipeline()
+        manual_result = ManualQuantResult(
+            output_path=Path("/tmp/manual"),
+            plan=_mock_quant_plan(),
+            quantized_size_mb=500.0,
+            original_size_mb=2000.0,
+            bias_corrections=None,
+        )
+
+        from atlas.profile.layers import LayerProfile, LayerSensitivity
+        mock_layer_profile = LayerProfile(
+            model_id="test/tiny-1B", num_layers=10,
+            sensitivities=tuple(
+                LayerSensitivity(i, f"model.layers.{i}", float(i), round(i/9, 4))
+                for i in range(10)
+            ),
+            calibration_samples=64,
+        )
+
+        with patch.object(pipeline._profiler, "detect", return_value=_mock_hardware()), \
+             patch.object(pipeline._profiler, "usable_memory_gb", return_value=22.4), \
+             patch.object(pipeline._loader, "load_metadata", return_value=_mock_model_info()), \
+             patch.object(pipeline._layer_profiler, "profile", return_value=mock_layer_profile), \
+             patch.object(pipeline._planner, "plan", return_value=_mock_quant_plan()), \
+             patch.object(pipeline._manual_quantizer, "quantize", return_value=manual_result) as mock_manual, \
+             patch.object(pipeline._evaluator, "evaluate", return_value=_mock_eval_result()), \
+             patch.object(pipeline._packer, "package", return_value=_mock_package_info()):
+
+            result = pipeline.run("test/tiny-1B", "auto", 99.0, "mlx", mode="mixed")
+
+        mock_manual.assert_called_once()
+        assert result.quant_plan is not None
+
     def test_uniform_mode_skips_profiler_planner(self):
         pipeline = Pipeline()
         with patch.object(pipeline._profiler, "detect", return_value=_mock_hardware()), \
@@ -280,3 +325,119 @@ class TestPipelineMixedMode:
 
         assert result.quant_plan is None
         assert result.quant_result is not None
+
+
+class TestPipelinePhase25Params:
+    def test_run_accepts_metric_and_compensation_params(self):
+        pipeline = Pipeline()
+
+        with patch.object(pipeline._profiler, "detect", return_value=_mock_hardware()), \
+             patch.object(pipeline._profiler, "usable_memory_gb", return_value=100.0), \
+             patch.object(pipeline._loader, "load_metadata", return_value=_mock_model_info()):
+            result = pipeline.run(
+                model_id="test/model",
+                target="auto", quality=99.0, output_format="mlx",
+                mode="mixed", dry_run=True,
+                metric="entropy", enable_compensation=True,
+            )
+
+        assert result.metric == "entropy"
+        assert result.enable_compensation is True
+
+    def test_run_metric_default_is_entropy(self):
+        pipeline = Pipeline()
+
+        with patch.object(pipeline._profiler, "detect", return_value=_mock_hardware()), \
+             patch.object(pipeline._profiler, "usable_memory_gb", return_value=100.0), \
+             patch.object(pipeline._loader, "load_metadata", return_value=_mock_model_info()):
+            result = pipeline.run(
+                model_id="test/model",
+                target="auto", quality=99.0, output_format="mlx",
+                mode="mixed", dry_run=True,
+            )
+
+        assert result.metric == "entropy"
+
+    def test_compression_result_metric_and_compensation_defaults(self):
+        """CompressionResult deve avere metric e enable_compensation con defaults corretti."""
+        result = CompressionResult(
+            model_id="test",
+            hardware=_mock_hardware(),
+            model_info=_mock_model_info(),
+            fits_in_memory=True,
+            estimated_bits=4.0,
+            estimated_size_gb=0.6,
+        )
+        assert result.metric == "relative_growth"
+        assert result.enable_compensation is False
+
+    def test_metric_passed_to_layer_profiler(self):
+        """Pipeline.run() deve passare metric= a layer_profiler.profile()."""
+        pipeline = Pipeline()
+        manual_result = ManualQuantResult(
+            output_path=Path("/tmp/manual"),
+            plan=_mock_quant_plan(),
+            quantized_size_mb=500.0,
+            original_size_mb=2000.0,
+            bias_corrections=None,
+        )
+
+        from atlas.profile.layers import LayerProfile, LayerSensitivity
+        mock_layer_profile = LayerProfile(
+            model_id="test/tiny-1B", num_layers=10,
+            sensitivities=tuple(
+                LayerSensitivity(i, f"model.layers.{i}", float(i), round(i/9, 4))
+                for i in range(10)
+            ),
+            calibration_samples=64,
+        )
+
+        with patch.object(pipeline._profiler, "detect", return_value=_mock_hardware()), \
+             patch.object(pipeline._profiler, "usable_memory_gb", return_value=22.4), \
+             patch.object(pipeline._loader, "load_metadata", return_value=_mock_model_info()), \
+             patch.object(pipeline._layer_profiler, "profile", return_value=mock_layer_profile) as mock_profile, \
+             patch.object(pipeline._planner, "plan", return_value=_mock_quant_plan()), \
+             patch.object(pipeline._manual_quantizer, "quantize", return_value=manual_result), \
+             patch.object(pipeline._evaluator, "evaluate", return_value=_mock_eval_result()), \
+             patch.object(pipeline._packer, "package", return_value=_mock_package_info()):
+
+            pipeline.run("test/tiny-1B", "auto", 99.0, "mlx", mode="mixed", metric="entropy")
+
+        mock_profile.assert_called_once_with("test/tiny-1B", metric="entropy")
+
+    def test_bias_corrections_passed_to_evaluator(self):
+        """Pipeline.run() deve passare bias_corrections al valutatore."""
+        import mlx.core as mx
+        pipeline = Pipeline()
+        fake_corrections = (mx.zeros((64,)), mx.zeros((64,)))
+        manual_result = ManualQuantResult(
+            output_path=Path("/tmp/manual"),
+            plan=_mock_quant_plan(),
+            quantized_size_mb=500.0,
+            original_size_mb=2000.0,
+            bias_corrections=fake_corrections,
+        )
+
+        from atlas.profile.layers import LayerProfile, LayerSensitivity
+        mock_layer_profile = LayerProfile(
+            model_id="test/tiny-1B", num_layers=10,
+            sensitivities=tuple(
+                LayerSensitivity(i, f"model.layers.{i}", float(i), round(i/9, 4))
+                for i in range(10)
+            ),
+            calibration_samples=64,
+        )
+
+        with patch.object(pipeline._profiler, "detect", return_value=_mock_hardware()), \
+             patch.object(pipeline._profiler, "usable_memory_gb", return_value=22.4), \
+             patch.object(pipeline._loader, "load_metadata", return_value=_mock_model_info()), \
+             patch.object(pipeline._layer_profiler, "profile", return_value=mock_layer_profile), \
+             patch.object(pipeline._planner, "plan", return_value=_mock_quant_plan()), \
+             patch.object(pipeline._manual_quantizer, "quantize", return_value=manual_result), \
+             patch.object(pipeline._evaluator, "evaluate", return_value=_mock_eval_result()) as mock_eval, \
+             patch.object(pipeline._packer, "package", return_value=_mock_package_info()):
+
+            pipeline.run("test/tiny-1B", "auto", 99.0, "mlx", mode="mixed")
+
+        call_kwargs = mock_eval.call_args
+        assert call_kwargs.kwargs.get("bias_corrections") is fake_corrections
