@@ -1,0 +1,46 @@
+[
+  {
+    "status": "ok",
+    "variant": "uniform",
+    "model": "Qwen/Qwen2.5-7B-Instruct",
+    "elapsed_s": 382.3,
+    "ppl_baseline": 13.1541,
+    "ppl_quantized": 14.703,
+    "ppl_delta_pct": 11.78,
+    "avg_bits": 4,
+    "fits_in_memory": true
+  },
+  {
+    "status": "ok",
+    "variant": "quality",
+    "model": "Qwen/Qwen2.5-7B-Instruct",
+    "elapsed_s": 249.6,
+    "ppl_baseline": 13.1541,
+    "ppl_quantized": 13.7311,
+    "ppl_delta_pct": 4.39,
+    "avg_bits": 4.71,
+    "fits_in_memory": true
+  },
+  {
+    "status": "ok",
+    "variant": "sgsr",
+    "model": "Qwen/Qwen2.5-7B-Instruct",
+    "elapsed_s": 192.7,
+    "ppl_baseline": 13.1541,
+    "ppl_quantized": 14.5848,
+    "ppl_delta_pct": 10.88,
+    "avg_bits": 4.0,
+    "fits_in_memory": true
+  },
+  {
+    "status": "ok",
+    "variant": "sgsrq",
+    "model": "Qwen/Qwen2.5-7B-Instruct",
+    "elapsed_s": 191.8,
+    "ppl_baseline": 13.1541,
+    "ppl_quantized": 14.0378,
+    "ppl_delta_pct": 6.72,
+    "avg_bits": 4.14,
+    "fits_in_memory": true
+  }
+]
