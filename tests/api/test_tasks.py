@@ -65,6 +65,26 @@ def test_run_compress_job_pipeline_failure_sets_failed():
     assert "model too large" in updated.error
 
 
+def test_run_compress_job_billing_failure_does_not_flip_done_to_failed():
+    store = _store()
+    job = store.create(model_id="meta-llama/Llama-3.1-8B", tier="pro", config={"quality": 0.9}, user_id="user_123")
+
+    pipeline = MagicMock()
+    pipeline.run.return_value = MagicMock()
+
+    stripe_client = MagicMock()
+    stripe_client.billing.MeterEvent.create.side_effect = RuntimeError("stripe down")
+
+    import atlas.api.tasks as tasks_module
+    tasks_module.serialize_compression_result = lambda r: {"ok": True}
+
+    run_compress_job(job.id, store, pipeline, stripe_client=stripe_client)
+
+    updated = store.get(job.id)
+    assert updated.status == "done"
+    assert updated.result == {"ok": True}
+
+
 def test_run_compress_job_sets_running_before_calling_pipeline():
     store = _store()
     job = store.create(model_id="m", tier="free", config={}, user_id=None)

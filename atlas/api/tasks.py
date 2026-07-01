@@ -23,11 +23,21 @@ def run_compress_job(job_id: str, job_store: JobStore, pipeline: Pipeline, strip
         result = pipeline.run(model_id=job.model_id, **job.config)
         serialized = serialize_compression_result(result)
         job_store.set_result(job_id, "done", result=serialized)
-
-        if job.tier == "pro" and stripe_client is not None and job.user_id is not None:
-            create_usage_record(stripe_client, customer_id=job.user_id, job_id=job_id)
     except Exception as e:
         job_store.set_result(job_id, "failed", error=str(e))
+        return
+
+    # Pro tier is only reachable via a valid Clerk JWT in the FastAPI layer,
+    # which always yields a user_id, so `job.user_id is None` here is an
+    # expected-impossible defensive guard, not a silent bug.
+    if job.tier == "pro" and stripe_client is not None and job.user_id is not None:
+        try:
+            create_usage_record(stripe_client, customer_id=job.user_id, job_id=job_id)
+        except Exception:
+            # Billing failures must not flip a successful job back to "failed"
+            # and must not overwrite its result. Fase A has no retry queue and
+            # no billing-failure alerting yet, so we swallow this here.
+            pass
 
 
 @celery_app.task(name="compress")
