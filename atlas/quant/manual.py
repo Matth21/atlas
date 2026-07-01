@@ -1,8 +1,10 @@
-"""Quantizzatore con SmoothQuant / QI-SmoothQuant pre-processing per Atlas.
+"""Quantizzatore con SmoothQuant / QI-SmoothQuant / AdaptiveSmooth per Atlas.
 
-enable_compensation=False  → plain MixedQuantizer
-enable_compensation=True, qi_mode=False  → SmoothQuant (Phase 2.5)
-enable_compensation=True, qi_mode=True   → QI-SmoothQuant (Phase 2.7, novel)
+enable_compensation=False                          → plain MixedQuantizer
+enable_compensation=True, qi_mode=False,
+  adaptive_alpha=False                             → SmoothQuant (Phase 2.5)
+enable_compensation=True, qi_mode=True             → QI-SmoothQuant (Phase 2.8)
+enable_compensation=True, adaptive_alpha=True      → AdaptiveSmooth (Phase 2.9, novel)
 """
 
 import shutil
@@ -15,6 +17,7 @@ from atlas.plan.planner import QuantPlan
 from atlas.quant.mixed import MixedQuantizer, CACHE_DIR
 from atlas.quant.smooth import smooth_model_dir
 from atlas.quant.qi_smooth import qi_smooth_model_dir
+from atlas.quant.adaptive_smooth import adaptive_smooth_model_dir
 
 
 @dataclass(frozen=True)
@@ -37,11 +40,15 @@ class ManualLayerQuantizer:
         smooth_alpha: float = 0.5,
         qi_mode: bool = False,
         error_lambda: float = 0.3,
+        adaptive_alpha: bool = False,
     ) -> ManualQuantResult:
         safe_name = model_id.replace("/", "_")
 
         if enable_compensation:
-            if qi_mode:
+            if adaptive_alpha:
+                smooth_dir = adaptive_smooth_model_dir(model_id)
+                tag = f"mlx-adaptive-smooth-avg{plan.avg_bits}bit"
+            elif qi_mode:
                 smooth_dir = qi_smooth_model_dir(
                     model_id, alpha=smooth_alpha, error_lambda=error_lambda
                 )

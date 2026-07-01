@@ -216,6 +216,31 @@ class TestPhase25AblationE2E:
             f"Baseline: {er.ppl_baseline:.2f}, Quantizzato: {er.ppl_quantized:.2f}"
         )
 
+    def test_variant_g_adaptive_smooth_target(self, tmp_path: Path) -> None:
+        """Variante G: AdaptiveSmooth — per-layer alpha optimization.
+
+        Per ogni layer seleziona alpha_i ∈ {0.2,0.3,0.5,0.7,0.8} minimizzando
+        activation-weighted quantization error: score = mean_j(err_j × act_max_j).
+        Novel vs SmoothQuant (alpha fisso=0.5) e SmoothQuant+ (alpha uniforme).
+        Target: PPL delta <= +3.0% su TinyLlama (verifica su modello piccolo).
+        """
+        pipeline = Pipeline()
+        from atlas.pack.mlx_packer import MLXPacker
+        pipeline._packer = MLXPacker(output_base=tmp_path / "output")
+        result = pipeline.run(
+            model_id=self.MODEL_ID,
+            target="auto", quality=99.0, output_format="mlx",
+            mode="mixed", metric="entropy", enable_compensation=True,
+            sgsr_mode=False, qi_mode=False, adaptive_alpha=True,
+        )
+        er = result.eval_result
+        assert er is not None
+        assert result.adaptive_alpha is True
+        assert er.ppl_delta_pct <= 3.0, (
+            f"AdaptiveSmooth target non raggiunto: PPL delta {er.ppl_delta_pct:.2f}% > 3.0%. "
+            f"Baseline: {er.ppl_baseline:.2f}, Quantizzato: {er.ppl_quantized:.2f}"
+        )
+
     def test_ablation_d_beats_a(self, tmp_path: Path) -> None:
         """Variante D deve avere PPL delta inferiore alla variante A (baseline)."""
         result_a = self._run_variant(tmp_path / "a", "relative_growth", False)

@@ -28,6 +28,7 @@ class CompressionResult:
     enable_compensation: bool = False
     sgsr_mode: bool = False
     qi_mode: bool = False
+    adaptive_alpha: bool = False
 
 
 class Pipeline:
@@ -56,6 +57,7 @@ class Pipeline:
         sgsr_mode: bool = False,
         qi_mode: bool = False,
         error_lambda: float = 0.3,
+        adaptive_alpha: bool = False,
     ) -> CompressionResult:
         hardware = self._profiler.detect()
         usable_gb = self._profiler.usable_memory_gb()
@@ -83,6 +85,7 @@ class Pipeline:
                     smooth_alpha=smooth_alpha,
                     qi_mode=qi_mode,
                     error_lambda=error_lambda,
+                    adaptive_alpha=adaptive_alpha,
                 )
 
                 eval_result = self._evaluator.evaluate(
@@ -136,6 +139,7 @@ class Pipeline:
             enable_compensation=enable_compensation,
             sgsr_mode=sgsr_mode,
             qi_mode=qi_mode,
+            adaptive_alpha=adaptive_alpha,
         )
 
     def _estimate_bits(self, quality: float) -> int:
