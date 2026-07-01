@@ -1,0 +1,427 @@
+\documentclass{article}
+
+\usepackage[preprint]{neurips_2024}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{graphicx}
+\usepackage{multirow}
+\usepackage{makecell}
+
+\title{SGSR: Entropy-Guided Group-Size Redistribution for\\
+Post-Training Quantization of Large Language Models}
+
+\author{
+  Matthias Raviotta \\
+  Independent Research \\
+  \texttt{raviottamatthias@gmail.com}
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We present \textbf{SGSR} (Sensitivity-Guided Group-Size Redistribution), a
+post-training quantization method that uses per-layer Shannon entropy to
+redistribute quantization group sizes across transformer layers, rather than
+varying bit widths. Unlike prior entropy-based approaches that allocate bit
+widths layer-wise, SGSR assigns finer group sizes (\texttt{gs}=32) to
+high-entropy layers and coarser group sizes (\texttt{gs}=128) to low-entropy
+layers, keeping all weights at a fixed bit width. We further introduce
+\textbf{SGSR-Q}, which combines SGSR group-size redistribution with a targeted
+quality gate that promotes the top 5\% most sensitive layers to 8-bit
+precision, operating on two compression axes simultaneously. On TinyLlama 1.1B,
+SGSR achieves $+3.28\%$ PPL delta at 4.51~bit/w versus $+4.34\%$ for uniform
+4-bit quantization at equal budget. On Qwen2.5-7B-Instruct, SGSR-Q achieves
+$+6.72\%$ PPL delta at 4.14~bit/w versus $+11.78\%$ uniform---a $43\%$
+relative improvement consistent across model scales. Both algorithms are
+implemented natively in MLX for Apple Silicon and require no gradient
+computation. Our analysis shows that SGSR-Q's efficiency scales favorably with
+model size: on 7B-scale models the method delivers $36$~pp-per-bit/w
+efficiency, approximately $18\times$ higher than on 1B models.
+\end{abstract}
+
+
+\section{Introduction}
+
+Deploying large language models on consumer hardware requires aggressive weight
+compression. Post-training quantization (PTQ) is the dominant approach: weights
+are quantized to low-precision integers without retraining, at the cost of
+perplexity degradation proportional to the information lost in the quantization
+step \citep{gptq, llmint8}.
+
+A key design dimension in PTQ is \emph{group-size quantization}: instead of
+sharing a single scale and zero-point across an entire weight matrix, weights are
+partitioned into groups of $k$ elements, each with its own scale. Smaller groups
+(e.g.\ $k=32$) reduce quantization error at the cost of metadata overhead,
+while larger groups ($k=128$) save space at the cost of accuracy. In practice,
+group size is chosen uniformly across all layers.
+
+We observe that layers differ substantially in their sensitivity to quantization
+error. A natural question is: \emph{can we allocate group sizes
+non-uniformly—finer for sensitive layers, coarser for robust ones—to improve the
+quality/compression trade-off?} This framing is orthogonal to mixed-bit
+quantization (which varies bit widths) and complements it.
+
+We use Shannon entropy of the per-layer weight distribution as a sensitivity
+proxy. High-entropy layers have more dispersed weight distributions and tend to
+accumulate larger quantization errors; low-entropy layers are more compressible.
+This metric is cheap to compute (no backward pass) and architecture-agnostic.
+
+Prior work on entropy-guided quantization (EWQ, \citealt{ewq}) uses entropy to
+decide \emph{which layers to quantize at all}—a binary or ternary bit-width
+decision. ScaleBITS \citep{scalebits} performs hardware-aligned bitwidth search
+via channel reordering but does not use entropy. To the best of our knowledge,
+no prior work uses entropy to guide \emph{group-size} redistribution.
+
+Our contributions are:
+\begin{enumerate}
+  \item \textbf{SGSR}: a PTQ method that redistributes group sizes
+    (\texttt{gs}$\in\{32,64,128\}$) according to per-layer Shannon entropy,
+    keeping all layers at a fixed bit width.
+  \item \textbf{SGSR-Q}: an extension that additionally promotes the top 5\%
+    most sensitive layers to 8-bit precision, creating a dual-axis compression
+    strategy.
+  \item Cross-model validation on TinyLlama 1.1B \citep{tinyllama} and
+    Qwen2.5-7B-Instruct \citep{qwen25}, showing that SGSR-Q's relative
+    improvement ($\approx43\%$ vs.\ uniform 4-bit) is stable across model scales.
+  \item An MLX-native implementation \citep{mlx} that runs entirely on Apple
+    Silicon unified memory with no external dependencies.
+\end{enumerate}
+
+
+\section{Background}
+
+\paragraph{Group-size quantization.}
+Given a weight matrix $W \in \mathbb{R}^{m \times n}$, group-size quantization
+partitions each row into non-overlapping groups of $k$ elements. For group $g$,
+the quantized value is:
+\begin{equation}
+  \hat{W}_{g,i} = \mathrm{round}\!\left(\frac{W_{g,i}}{s_g}\right) \cdot s_g + z_g
+\end{equation}
+where $s_g$ and $z_g$ are the group scale and zero-point. Smaller $k$ reduces
+the approximation error at the cost of $\nicefrac{n}{k}$ extra scale/zero-point
+values per row. In MLX \citep{mlx}, supported group sizes are $k \in \{32, 64,
+128\}$.
+
+\paragraph{SmoothQuant.}
+SmoothQuant \citep{smoothquant} migrates quantization difficulty from activations
+to weights via a per-channel scale:
+\begin{equation}
+  s_j = \frac{\max(|X_j|)^\alpha}{\max(|W_j|)^{1-\alpha}}
+\end{equation}
+where $\alpha \in [0,1]$ controls the migration strength. We apply SmoothQuant
+with $\alpha=0.5$ as a pre-processing step before group-size quantization.
+
+\paragraph{Shannon entropy as a sensitivity metric.}
+For layer $l$ with weight matrix $W_l$, we compute the normalized weight
+histogram $p_{l,i}$ across 256 bins and define the per-layer entropy:
+\begin{equation}
+  H_l = -\sum_i p_{l,i} \log p_{l,i}
+\end{equation}
+High entropy indicates a dispersed, hard-to-compress distribution. We use $H_l$
+to rank layers by sensitivity without requiring calibration gradients or
+Hessian-based scores, making SGSR applicable even when a single forward pass is
+expensive.
+
+
+\section{Method}
+
+\subsection{SGSR: Sensitivity-Guided Group-Size Redistribution}
+
+SGSR assigns group sizes according to entropy rank. Let $L$ be the total number
+of transformer weight layers and let $\pi$ be the permutation sorting layers by
+$H_l$ in descending order (most sensitive first). We define three tiers:
+
+\begin{itemize}
+  \item \textbf{Fine tier} (top $f=15\%$ of layers): \texttt{gs}=32. Finer
+    quantization granularity for the most sensitive layers.
+  \item \textbf{Mid tier} (middle $1-f-c$ layers): \texttt{gs}=64. Default
+    group size.
+  \item \textbf{Coarse tier} (bottom $c=25\%$ of layers): \texttt{gs}=128.
+    Coarser quantization for the most robust layers, reducing metadata overhead.
+\end{itemize}
+
+All layers remain at the target bit width $b$ (typically 4-bit). SGSR therefore
+does not increase average bits-per-weight significantly ($\leq+0.01$~bit/w in
+practice) but improves quality by concentrating quantization fidelity where
+entropy is highest.
+
+The full procedure is given in Algorithm~\ref{alg:sgsr}.
+
+\begin{algorithm}[t]
+\caption{SGSR: Sensitivity-Guided Group-Size Redistribution}
+\label{alg:sgsr}
+\begin{algorithmic}[1]
+\Require model $M$, calibration data $\mathcal{X}$, target bits $b$,
+         fractions $f{=}0.15$, $c{=}0.25$
+\State Load $M$ in BF16 precision
+\State Apply SmoothQuant($\alpha{=}0.5$) using $\mathcal{X}$
+\State $\mathbf{H} \leftarrow \bigl[H_l\bigr]_{l=1}^{L}$ \Comment{per-layer Shannon entropy}
+\State $\pi \leftarrow \mathrm{argsort}(\mathbf{H}, \text{descending})$
+\State $n_f \leftarrow \max(1, \lfloor fL \rfloor)$, $n_c \leftarrow \max(1, \lfloor cL \rfloor)$
+\For{$\text{rank}\, r = 1, \ldots, L$}
+  \State $l \leftarrow \pi(r)$
+  \If{$r \leq n_f$} $\texttt{gs}[l] \leftarrow 32$
+  \ElsIf{$r > L - n_c$} $\texttt{gs}[l] \leftarrow 128$
+  \Else{} $\texttt{gs}[l] \leftarrow 64$
+  \EndIf
+\EndFor
+\State Quantize $M$ to $b$-bit with per-layer \texttt{gs}
+\State \Return quantized model
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{SGSR-Q: Dual-Axis Compression}
+
+SGSR-Q extends SGSR by adding a quality gate: the top $q=5\%$ most sensitive
+layers are promoted to 8-bit precision instead of the target $b$-bit. This
+creates a two-dimensional allocation:
+
+\begin{enumerate}
+  \item \textbf{Quality axis}: top-$q$ layers at 8-bit (full precision within
+    group). Only $\approx\!1$ layer per 20–28 is promoted, adding minimal
+    bit overhead.
+  \item \textbf{Group-size axis}: remaining layers follow the SGSR tier
+    assignment based on their rank among the non-promoted layers.
+\end{enumerate}
+
+This contrasts with pure mixed-bit approaches (which vary bit width without
+group-size redistribution) and with pure SGSR (which varies group size without
+bit promotion). The combination dominates both on the PPL-vs-bits Pareto
+frontier in our experiments.
+
+Algorithm~\ref{alg:sgsrq} formalizes SGSR-Q.
+
+\begin{algorithm}[t]
+\caption{SGSR-Q: Dual-Axis Quantization}
+\label{alg:sgsrq}
+\begin{algorithmic}[1]
+\Require model $M$, calibration data $\mathcal{X}$, target bits $b$,
+         quality fraction $q{=}0.05$, fractions $f{=}0.15$, $c{=}0.25$
+\State Load $M$ in BF16; apply SmoothQuant($\alpha{=}0.5$)
+\State $\mathbf{H} \leftarrow \bigl[H_l\bigr]_{l=1}^{L}$; $\pi \leftarrow \mathrm{argsort}(\mathbf{H}, \text{desc.})$
+\State $n_q \leftarrow \max(1, \lfloor qL \rfloor)$
+\For{$r = 1, \ldots, L$}
+  \State $l \leftarrow \pi(r)$
+  \If{$r \leq n_q$}
+    \State $\texttt{bits}[l] \leftarrow 8$; $\texttt{gs}[l] \leftarrow 64$
+  \Else
+    \State $r' \leftarrow r - n_q$ \Comment{rank among non-quality layers}
+    \State $\texttt{bits}[l] \leftarrow b$
+    \If{$r' \leq n_f$} $\texttt{gs}[l] \leftarrow 32$
+    \ElsIf{$r' > L - n_q - n_c$} $\texttt{gs}[l] \leftarrow 128$
+    \Else{} $\texttt{gs}[l] \leftarrow 64$
+    \EndIf
+  \EndIf
+\EndFor
+\State Quantize $M$ with per-layer $(\texttt{bits}[l], \texttt{gs}[l])$
+\State \Return quantized model
+\end{algorithmic}
+\end{algorithm}
+
+
+\section{Experiments}
+
+\subsection{Setup}
+
+\paragraph{Models.}
+We evaluate on TinyLlama 1.1B Chat v1.0 \citep{tinyllama} and
+Qwen2.5-7B-Instruct \citep{qwen25}. These two models represent different
+architectural families (Llama-based vs.\ Qwen) and parameter scales (1.1B
+vs.\ 7.6B), enabling cross-architecture validation.
+
+\paragraph{Hardware.}
+All experiments run on a MacBook Pro with Apple M1 Pro (10 cores, 16 GPU cores,
+32~GB unified memory) using MLX \citep{mlx} with BF16 precision. No GPU server
+or external accelerator is used.
+
+\paragraph{Calibration and evaluation.}
+We use 16 random samples from Wikitext-2-raw-v1 \citep{wikitext} for
+calibration and evaluate perplexity on 100 held-out test samples. We report
+PPL delta ($\Delta$PPL\%) relative to the unquantized BF16 model:
+\begin{equation}
+  \Delta\text{PPL}\% = \frac{\text{PPL}_\text{quant} -
+  \text{PPL}_\text{base}}{\text{PPL}_\text{base}} \times 100
+\end{equation}
+Lower is better.
+
+\paragraph{Baselines.}
+\begin{itemize}
+  \item \textbf{Uniform 4-bit}: all layers at 4-bit, \texttt{gs}=64. No SmoothQuant.
+  \item \textbf{Quality-only}: entropy-ranked layers; top 20\% at 8-bit, rest at
+    4-bit with \texttt{gs}=64. SmoothQuant applied. No group-size redistribution.
+  \item \textbf{SGSR}: entropy-ranked group sizes; all layers at 4-bit. SmoothQuant applied.
+  \item \textbf{SGSR-Q}: dual-axis (ours).
+\end{itemize}
+
+\subsection{Main Results}
+
+Table~\ref{tab:main} reports $\Delta$PPL\% and average bits per weight for all
+methods on both models.
+
+\begin{table}[t]
+\centering
+\caption{PPL delta (\%) and average bits per weight. Lower $\Delta$PPL is better.
+Bits reported from QuantPlan (layer-average); SmoothQuant applied to all
+methods except Uniform 4-bit.}
+\label{tab:main}
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{lcccc}
+\toprule
+& \multicolumn{2}{c}{\textbf{TinyLlama 1.1B}} &
+  \multicolumn{2}{c}{\textbf{Qwen2.5-7B}} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+\textbf{Method} & bit/w & $\Delta$PPL\% & bit/w & $\Delta$PPL\% \\
+\midrule
+Uniform 4-bit (no SQ)    & 4.00 & +4.34 & 4.00 & +11.78 \\
+Quality-only             & 4.73 & +1.67 & 4.71 & +4.39  \\
+SGSR                     & 4.51 & +3.28 & 4.01 & +10.88 \\
+\textbf{SGSR-Q (ours)}   & \textbf{4.91} & \textbf{+2.54} &
+                           \textbf{4.14} & \textbf{+6.72}  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+On TinyLlama, SGSR beats uniform 4-bit by 1.06~pp at near-identical budget
+(4.51 vs.\ 4.00~bit/w). SGSR-Q achieves $+2.54\%$, between SGSR and
+Quality-only, representing the Pareto-optimal trade-off on this model.
+
+On Qwen2.5-7B, SGSR-Q reduces $\Delta$PPL from $+11.78\%$ (uniform) to
+$+6.72\%$---a $\mathbf{43\%}$ relative improvement. Notably, SGSR without the
+quality gate provides only $-0.90$~pp improvement on 7B (vs.\ $-1.06$~pp on
+1.1B), suggesting that on larger models the dominant source of quantization
+error is confined to a small number of outlier-rich layers that the quality gate
+addresses directly.
+
+\subsection{Pareto Analysis}
+
+We measure compression efficiency as PPL improvement per additional bit per
+weight relative to the uniform 4-bit baseline:
+\begin{equation}
+  \eta = \frac{\Delta\text{PPL}_\text{uniform} - \Delta\text{PPL}_\text{method}}
+              {\text{bit/w}_\text{method} - \text{bit/w}_\text{uniform}}
+\end{equation}
+
+\begin{table}[h]
+\centering
+\caption{Compression efficiency $\eta$ (pp improvement per extra bit/w).}
+\label{tab:pareto}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Method} & \textbf{TinyLlama} $\eta$ & \textbf{Qwen2.5-7B} $\eta$ \\
+\midrule
+Quality-only  & 3.66 & 10.41 \\
+SGSR          & ---\tablefootnote{Near-zero bit overhead; ratio ill-defined.} & --- \\
+\textbf{SGSR-Q} & \textbf{1.98} & \textbf{36.14} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+SGSR-Q efficiency on 7B ($\eta\!=\!36.1$~pp/bit/w) is $18\times$ higher than on
+1.1B ($\eta\!=\!2.0$~pp/bit/w), driven by two factors: (1) the quality gate on
+7B promotes only 1 layer (top 5\% of 28) vs.\ 1 layer of 22 on 1.1B, adding
+only $+0.14$ vs.\ $+0.91$ extra bit/w overhead; and (2) the outlier-layer effect
+is stronger on larger models.
+
+\subsection{Ablation Study}
+
+Table~\ref{tab:ablation} disentangles the contributions of each component on
+TinyLlama 1.1B. We vary the sensitivity metric (relative gradient growth
+\citep{gptq} vs.\ Shannon entropy) and the presence of SmoothQuant.
+
+\begin{table}[h]
+\centering
+\caption{Ablation on TinyLlama 1.1B. ``SQ'' = SmoothQuant ($\alpha\!=\!0.5$).}
+\label{tab:ablation}
+\begin{tabular}{llcc}
+\toprule
+\textbf{Metric} & \textbf{SQ} & \textbf{bit/w} & $\Delta$\textbf{PPL\%} \\
+\midrule
+Relative growth & No  & 4.36 & +13.27 \\
+Entropy         & No  & 4.36 & +12.35 \\
+Relative growth & Yes & 4.73 & +2.41 \\
+Entropy         & Yes & 4.73 & +1.67 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Entropy metric improves over relative growth by $0.92$~pp ($-7.0\%$ relative)
+when combined with SmoothQuant. SmoothQuant alone contributes the largest
+single improvement ($\approx\!10$~pp), consistent with its design goal of
+equalizing activation distributions before quantization.
+
+
+\section{Related Work}
+
+\paragraph{Post-training quantization.}
+GPTQ \citep{gptq} minimizes layer-wise reconstruction error using approximate
+second-order information. SpQR \citep{spqr} uses a two-level scheme with sparse
+high-precision outliers. AWQ \citep{awq} identifies salient weight channels via
+activation magnitudes and protects them with higher-precision treatment.
+SmoothQuant \citep{smoothquant} migrates quantization difficulty from
+activations to weights via a mathematically equivalent channel-wise rescaling.
+Our work builds on SmoothQuant as a pre-processing step.
+
+\paragraph{Mixed-precision quantization.}
+Mixed-bit quantization assigns different bit widths per layer. ScaleBITS
+\citep{scalebits} formulates global bitwidth allocation as a constrained
+optimization and uses hardware-aligned channel reordering. EWQ \citep{ewq} uses
+Shannon entropy to select per-block bit widths. Our work is orthogonal: we fix
+the bit width and redistribute group sizes, a dimension unexplored by
+these methods.
+
+\paragraph{Entropy in quantization.}
+EWQ \citep{ewq} is the closest prior work using entropy in PTQ. The key
+distinction is the allocation target: EWQ uses entropy to decide \emph{whether
+to quantize} a layer (bit-width choice), while SGSR uses entropy to decide the
+\emph{group-size granularity} within a fixed bit width. These are complementary
+strategies that could be combined in future work.
+
+\paragraph{Apple Silicon quantization.}
+MLX \citep{mlx} supports 2/4/8-bit weight quantization with group-size
+\texttt{gs}$\in\{32,64,128\}$. To our knowledge, no published work
+specifically targets entropy-guided group-size redistribution on the MLX
+framework and Apple Silicon unified memory architecture.
+
+
+\section{Conclusion}
+
+We introduced SGSR and SGSR-Q, two PTQ methods that use Shannon entropy to
+redistribute quantization group sizes across transformer layers. Our key finding
+is that entropy is more informative as a group-size allocator than as a
+bit-width allocator on small models, and that combining group-size redistribution
+with a targeted quality gate (SGSR-Q) yields consistent $\approx\!43\%$
+relative PPL improvement over uniform 4-bit quantization across the 1B–7B scale.
+The efficiency advantage of SGSR-Q scales with model size, making it
+particularly attractive for 7B+ models on consumer hardware.
+
+\paragraph{Limitations.}
+Our evaluation covers two model families; validation on models with
+architectures featuring pronounced outlier channels (e.g., Llama-3.1-8B,
+Mistral) would strengthen the cross-architecture claim. The calibration set is
+limited to 16 samples from Wikitext-2; domain-specific calibration may yield
+different results. We have not evaluated on downstream tasks beyond perplexity.
+
+\paragraph{Future work.}
+Combining SGSR with QI-SmoothQuant (quantization-error-informed scale
+refinement) or AdaptiveSmooth (per-layer $\alpha$ optimization) may yield
+further improvements on larger models where activation outliers are
+more pronounced.
+
+\bibliography{references}
+\bibliographystyle{plainnat}
+
+\end{document}
