@@ -1,11 +1,11 @@
-FREE_TIER_MODELS = frozenset(
+FREE_TIER_MODELS: frozenset[str] = frozenset(
     {
         "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
         "Qwen/Qwen2.5-3B-Instruct",
     }
 )
 
-FREE_TIER_CONFIG = {
+FREE_TIER_CONFIG: dict = {
     "target": "quality",
     "quality": 0.8,
     "output_format": "mlx",
