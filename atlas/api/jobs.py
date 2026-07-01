@@ -2,7 +2,7 @@ import json
 import uuid
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
 JOB_TTL_SECONDS = 7 * 24 * 60 * 60
 
@@ -26,7 +26,7 @@ def _key(job_id: str) -> str:
 
 
 class JobStore:
-    def __init__(self, redis_client):
+    def __init__(self, redis_client: Any):
         self._redis = redis_client
 
     def create(
@@ -58,7 +58,7 @@ class JobStore:
         data = json.loads(raw)
         return Job(**data)
 
-    def set_status(self, job_id: str, status: str) -> None:
+    def set_status(self, job_id: str, status: Literal["queued", "running", "done", "failed"]) -> None:
         job = self.get(job_id)
         if job is None:
             raise KeyError(f"job {job_id} not found")
