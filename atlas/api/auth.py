@@ -18,7 +18,7 @@ def verify_clerk_jwt(token: str, jwks_client, issuer: str) -> str:
             algorithms=["RS256"],
             issuer=issuer,
         )
-    except jwt.PyJWTError as e:
+    except (jwt.PyJWTError, jwt.exceptions.PyJWKClientError) as e:
         raise AuthError(f"invalid Clerk token: {e}") from e
 
     sub = payload.get("sub")

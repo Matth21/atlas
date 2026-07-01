@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from atlas.api.app import create_app
 from atlas.api.free_tier import FREE_TIER_CONFIG, FREE_TIER_MODELS
 from atlas.api.jobs import JobStore
+from atlas.api.tasks import run_compress_job
 
 ISSUER = "https://clerk.example.com"
 
@@ -120,3 +121,33 @@ def test_get_compress_returns_job_status(client):
 def test_get_compress_unknown_job_returns_404(client):
     response = client.get("/compress/does-not-exist")
     assert response.status_code == 404
+
+
+def test_compress_end_to_end_through_enqueue_to_done(keypair, monkeypatch):
+    import atlas.api.tasks as tasks_module
+
+    monkeypatch.setattr(tasks_module, "serialize_compression_result", lambda r: {"ok": True})
+
+    _, public_key = keypair
+    job_store = JobStore(fakeredis.FakeStrictRedis(decode_responses=True))
+    jwks_client = _FakeJWKSClient(public_key)
+
+    pipeline = MagicMock()
+    pipeline.run.return_value = MagicMock()
+
+    def enqueue(job_id: str) -> None:
+        run_compress_job(job_id, job_store, pipeline, stripe_client=None)
+
+    app = create_app(job_store, jwks_client, ISSUER, enqueue)
+    test_client = TestClient(app)
+
+    model_id = next(iter(FREE_TIER_MODELS))
+    post_response = test_client.post("/compress", json={"model_id": model_id, "config": dict(FREE_TIER_CONFIG)})
+    assert post_response.status_code == 202
+    job_id = post_response.json()["job_id"]
+
+    get_response = test_client.get(f"/compress/{job_id}")
+    assert get_response.status_code == 200
+    body = get_response.json()
+    assert body["status"] == "done"
+    assert body["result"] == {"ok": True}

@@ -9,7 +9,7 @@ def _store():
     return JobStore(fakeredis.FakeStrictRedis(decode_responses=True))
 
 
-def test_run_compress_job_success_free_tier():
+def test_run_compress_job_success_free_tier(monkeypatch):
     store = _store()
     job = store.create(model_id="TinyLlama/TinyLlama-1.1B-Chat-v1.0", tier="free", config={"quality": 0.8}, user_id=None)
 
@@ -20,7 +20,7 @@ def test_run_compress_job_success_free_tier():
     stripe_client = MagicMock()
 
     import atlas.api.tasks as tasks_module
-    tasks_module.serialize_compression_result = lambda r: {"ok": True}
+    monkeypatch.setattr(tasks_module, "serialize_compression_result", lambda r: {"ok": True})
 
     run_compress_job(job.id, store, pipeline, stripe_client=stripe_client)
 
@@ -31,7 +31,7 @@ def test_run_compress_job_success_free_tier():
     stripe_client.billing.MeterEvent.create.assert_not_called()
 
 
-def test_run_compress_job_success_pro_tier_bills_usage():
+def test_run_compress_job_success_pro_tier_bills_usage(monkeypatch):
     store = _store()
     job = store.create(model_id="meta-llama/Llama-3.1-8B", tier="pro", config={"quality": 0.9}, user_id="user_123")
 
@@ -42,7 +42,7 @@ def test_run_compress_job_success_pro_tier_bills_usage():
     stripe_client.billing.MeterEvent.create.return_value = MagicMock(id="evt_1")
 
     import atlas.api.tasks as tasks_module
-    tasks_module.serialize_compression_result = lambda r: {"ok": True}
+    monkeypatch.setattr(tasks_module, "serialize_compression_result", lambda r: {"ok": True})
 
     run_compress_job(job.id, store, pipeline, stripe_client=stripe_client)
 
@@ -65,7 +65,7 @@ def test_run_compress_job_pipeline_failure_sets_failed():
     assert "model too large" in updated.error
 
 
-def test_run_compress_job_billing_failure_does_not_flip_done_to_failed():
+def test_run_compress_job_billing_failure_does_not_flip_done_to_failed(monkeypatch):
     store = _store()
     job = store.create(model_id="meta-llama/Llama-3.1-8B", tier="pro", config={"quality": 0.9}, user_id="user_123")
 
@@ -76,7 +76,7 @@ def test_run_compress_job_billing_failure_does_not_flip_done_to_failed():
     stripe_client.billing.MeterEvent.create.side_effect = RuntimeError("stripe down")
 
     import atlas.api.tasks as tasks_module
-    tasks_module.serialize_compression_result = lambda r: {"ok": True}
+    monkeypatch.setattr(tasks_module, "serialize_compression_result", lambda r: {"ok": True})
 
     run_compress_job(job.id, store, pipeline, stripe_client=stripe_client)
 
@@ -85,7 +85,7 @@ def test_run_compress_job_billing_failure_does_not_flip_done_to_failed():
     assert updated.result == {"ok": True}
 
 
-def test_run_compress_job_sets_running_before_calling_pipeline():
+def test_run_compress_job_sets_running_before_calling_pipeline(monkeypatch):
     store = _store()
     job = store.create(model_id="m", tier="free", config={}, user_id=None)
 
@@ -99,7 +99,7 @@ def test_run_compress_job_sets_running_before_calling_pipeline():
     pipeline.run.side_effect = _capture_status
 
     import atlas.api.tasks as tasks_module
-    tasks_module.serialize_compression_result = lambda r: {"ok": True}
+    monkeypatch.setattr(tasks_module, "serialize_compression_result", lambda r: {"ok": True})
 
     run_compress_job(job.id, store, pipeline, stripe_client=None)
 
