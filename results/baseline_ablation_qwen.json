@@ -1,0 +1,66 @@
+[
+  {
+    "status": "ok",
+    "variant": "uniform_sq",
+    "model": "Qwen/Qwen2.5-7B-Instruct",
+    "elapsed_s": 183.8,
+    "ppl_baseline": 13.1541,
+    "ppl_quantized": 14.532,
+    "ppl_delta_pct": 10.47,
+    "avg_bits": 4.0,
+    "effective_bits": 4.5,
+    "quantized_size_mb": 4085.9,
+    "gs_distribution": {
+      "64": 28
+    }
+  },
+  {
+    "status": "ok",
+    "variant": "uniform_gs32_sq",
+    "model": "Qwen/Qwen2.5-7B-Instruct",
+    "elapsed_s": 198.3,
+    "ppl_baseline": 13.1541,
+    "ppl_quantized": 14.4868,
+    "ppl_delta_pct": 10.13,
+    "avg_bits": 4.0,
+    "effective_bits": 5.0,
+    "quantized_size_mb": 4474.8,
+    "gs_distribution": {
+      "32": 28
+    }
+  },
+  {
+    "status": "ok",
+    "variant": "sgsr_inverse",
+    "model": "Qwen/Qwen2.5-7B-Instruct",
+    "elapsed_s": 191.2,
+    "ppl_baseline": 13.1541,
+    "ppl_quantized": 14.6013,
+    "ppl_delta_pct": 11.0,
+    "avg_bits": 4.0,
+    "effective_bits": 4.509,
+    "quantized_size_mb": 4092.8,
+    "gs_distribution": {
+      "128": 7,
+      "64": 17,
+      "32": 4
+    }
+  },
+  {
+    "status": "ok",
+    "variant": "sgsr_random_s42",
+    "model": "Qwen/Qwen2.5-7B-Instruct",
+    "elapsed_s": 190.8,
+    "ppl_baseline": 13.1541,
+    "ppl_quantized": 14.5795,
+    "ppl_delta_pct": 10.84,
+    "avg_bits": 4.0,
+    "effective_bits": 4.509,
+    "quantized_size_mb": 4092.8,
+    "gs_distribution": {
+      "128": 7,
+      "64": 17,
+      "32": 4
+    }
+  }
+]

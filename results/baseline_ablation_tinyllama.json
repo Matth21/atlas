@@ -1,0 +1,100 @@
+[
+  {
+    "status": "ok",
+    "variant": "uniform_sq",
+    "model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    "elapsed_s": 29.0,
+    "ppl_baseline": 16.0829,
+    "ppl_quantized": 16.566,
+    "ppl_delta_pct": 3.0,
+    "avg_bits": 4.0,
+    "effective_bits": 4.5,
+    "quantized_size_mb": 590.3,
+    "gs_distribution": {
+      "64": 22
+    }
+  },
+  {
+    "status": "ok",
+    "variant": "uniform_gs32_sq",
+    "model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    "elapsed_s": 30.7,
+    "ppl_baseline": 16.0829,
+    "ppl_quantized": 16.6166,
+    "ppl_delta_pct": 3.32,
+    "avg_bits": 4.0,
+    "effective_bits": 5.0,
+    "quantized_size_mb": 648.0,
+    "gs_distribution": {
+      "32": 22
+    }
+  },
+  {
+    "status": "ok",
+    "variant": "sgsr_inverse",
+    "model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    "elapsed_s": 27.9,
+    "ppl_baseline": 16.0829,
+    "ppl_quantized": 16.6205,
+    "ppl_delta_pct": 3.34,
+    "avg_bits": 4.0,
+    "effective_bits": 4.511,
+    "quantized_size_mb": 591.6,
+    "gs_distribution": {
+      "64": 14,
+      "128": 5,
+      "32": 3
+    }
+  },
+  {
+    "status": "ok",
+    "variant": "sgsr_random_s42",
+    "model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    "elapsed_s": 27.3,
+    "ppl_baseline": 16.0829,
+    "ppl_quantized": 16.7151,
+    "ppl_delta_pct": 3.93,
+    "avg_bits": 4.0,
+    "effective_bits": 4.511,
+    "quantized_size_mb": 591.6,
+    "gs_distribution": {
+      "128": 5,
+      "64": 14,
+      "32": 3
+    }
+  },
+  {
+    "status": "ok",
+    "variant": "sgsr_random_s43",
+    "model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    "elapsed_s": 27.3,
+    "ppl_baseline": 16.0829,
+    "ppl_quantized": 16.7082,
+    "ppl_delta_pct": 3.89,
+    "avg_bits": 4.0,
+    "effective_bits": 4.511,
+    "quantized_size_mb": 591.6,
+    "gs_distribution": {
+      "64": 14,
+      "128": 5,
+      "32": 3
+    }
+  },
+  {
+    "status": "ok",
+    "variant": "sgsr_random_s44",
+    "model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    "elapsed_s": 27.3,
+    "ppl_baseline": 16.0829,
+    "ppl_quantized": 16.608,
+    "ppl_delta_pct": 3.26,
+    "avg_bits": 4.0,
+    "effective_bits": 4.511,
+    "quantized_size_mb": 591.6,
+    "gs_distribution": {
+      "64": 14,
+      "128": 5,
+      "32": 3
+    }
+  }
+]
