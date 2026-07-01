@@ -241,6 +241,36 @@ class TestPhase25AblationE2E:
             f"Baseline: {er.ppl_baseline:.2f}, Quantizzato: {er.ppl_quantized:.2f}"
         )
 
+    def test_variant_h_sgsrq_target(self, tmp_path: Path) -> None:
+        """Variante H: SGSR-Q — quality gate (top 5% → 8-bit) + SGSR group-size tiers.
+
+        Due assi simultanei: bit promotion per layer critici + group_size redistribution.
+        avg_bits ≈ 4.60 bit/w (tra quality_mode 4.73 e SGSR 4.51).
+        Novel: nessun paper combina questi due assi su MLX native.
+        Target: PPL delta <= +3.5% (tra quality_mode +1.67% e SGSR +3.28%).
+        """
+        pipeline = Pipeline()
+        from atlas.pack.mlx_packer import MLXPacker
+        pipeline._packer = MLXPacker(output_base=tmp_path / "output")
+        result = pipeline.run(
+            model_id=self.MODEL_ID,
+            target="auto", quality=99.0, output_format="mlx",
+            mode="mixed", metric="entropy", enable_compensation=True,
+            sgsr_mode=False, sgsrq_mode=True,
+        )
+        er = result.eval_result
+        assert er is not None
+        assert result.sgsrq_mode is True
+        # top 5% → 8-bit, rest at 4-bit with mixed group_size
+        bits_vals = set(lp.bits for lp in result.quant_plan.layers)
+        assert 8 in bits_vals
+        gs_vals = set(lp.group_size for lp in result.quant_plan.layers)
+        assert len(gs_vals) >= 2
+        assert er.ppl_delta_pct <= 3.5, (
+            f"SGSR-Q target non raggiunto: PPL delta {er.ppl_delta_pct:.2f}% > 3.5%. "
+            f"Baseline: {er.ppl_baseline:.2f}, Quantizzato: {er.ppl_quantized:.2f}"
+        )
+
     def test_ablation_d_beats_a(self, tmp_path: Path) -> None:
         """Variante D deve avere PPL delta inferiore alla variante A (baseline)."""
         result_a = self._run_variant(tmp_path / "a", "relative_growth", False)

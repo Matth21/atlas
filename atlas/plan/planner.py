@@ -31,6 +31,12 @@ GROUP_SIZE_COARSE = 128
 SGSR_FINE_FRACTION = 0.15   # sweep optimum on TinyLlama: 15% fine (gs=32)
 SGSR_COARSE_FRACTION = 0.25  # 25% coarse (gs=128); net budget ≈ 4.511 bit/w vs 4.501 uniform
 
+# SGSR-Q: quality gate on top of SGSR.
+# Top SGSRQ_QUALITY_FRACTION → 8-bit (focused quality gate, more selective than quality_mode's 20%).
+# Remaining layers use SGSR group-size tiers.
+# avg_bits ≈ 4.60 bit/w (between quality_mode 4.73 and SGSR 4.51).
+SGSRQ_QUALITY_FRACTION = 0.05
+
 
 @dataclass(frozen=True)
 class LayerPlan:
@@ -53,20 +59,21 @@ class QuantPlan:
 class QuantPlanner:
     """Greedily allocates bit-widths and group-sizes per layer based on sensitivity.
 
-    Three modes (combinable):
+    Four modes:
 
     quality_mode=False (legacy): promote top 15% to 8-bit, demote bottom 10%
     to 2-bit. Empirically: +13.27% PPL delta vs +4.34% uniform.
 
     quality_mode=True (default): promote top 20% to 8-bit, NO demotion below
-    4-bit. avg_bits ≈ 4.7. Beats uniform 4-bit (+1.67% vs +4.34%).
+    4-bit. avg_bits ≈ 4.73. Beats uniform 4-bit (+1.67% vs +4.34%).
 
     sgsr_mode=True (Sensitivity-Guided group-Size Redistribution): all layers
-    stay at target_bits (no bit promotion/demotion). Instead, group_size varies
-    by sensitivity tier — fine (gs=32) for the most sensitive layers, coarse
-    (gs=128) for the least sensitive. Effective avg budget ≈ 4.45 bit/w,
-    BELOW the 4.501 bit/w of uniform 4-bit group_size=64. Novel combination
-    not in published literature for MLX/Apple Silicon.
+    stay at target_bits, group_size varies by sensitivity tier (gs=32/64/128).
+    Effective avg budget ≈ 4.51 bit/w. Novel, +3.28% at equal bit budget.
+
+    sgsrq_mode=True (SGSR + Quality gate): top 5% → 8-bit, remaining layers
+    use SGSR group-size tiers. avg_bits ≈ 4.60. Combines focused bit promotion
+    with group-size redistribution across two orthogonal axes simultaneously.
     """
 
     def plan(
@@ -78,6 +85,7 @@ class QuantPlanner:
         group_size: int = 64,
         quality_mode: bool = True,
         sgsr_mode: bool = False,
+        sgsrq_mode: bool = False,
     ) -> QuantPlan:
         if target_bits not in VALID_BITS:
             raise ValueError(f"target_bits must be one of {VALID_BITS}, got {target_bits}")
@@ -91,7 +99,25 @@ class QuantPlanner:
         for s in sorted_by_sens:
             bits_map[s.layer_index] = target_bits
 
-        if sgsr_mode:
+        if sgsrq_mode:
+            # SGSR-Q: quality gate (top 5% → 8-bit) + SGSR group-size tiers.
+            # Two axes simultaneously: bit-width for the most critical layers,
+            # group-size for the rest. Novel combination.
+            quality_count = max(1, int(n * SGSRQ_QUALITY_FRACTION))
+            fine_count = max(1, int(n * SGSR_FINE_FRACTION))
+            coarse_count = max(1, int(n * SGSR_COARSE_FRACTION))
+            gs_map = {}
+            for i, s in enumerate(sorted_by_sens):
+                if i < quality_count:
+                    bits_map[s.layer_index] = _promote(target_bits)
+                    gs_map[s.layer_index] = GROUP_SIZE_MID
+                elif i < quality_count + fine_count:
+                    gs_map[s.layer_index] = GROUP_SIZE_FINE
+                elif i >= n - coarse_count:
+                    gs_map[s.layer_index] = GROUP_SIZE_COARSE
+                else:
+                    gs_map[s.layer_index] = GROUP_SIZE_MID
+        elif sgsr_mode:
             # SGSR: keep all layers at target_bits, vary group_size by tier.
             # Top FINE_FRACTION → gs=32 (higher quality, slight overhead).
             # Bottom COARSE_FRACTION → gs=128 (lower overhead, acceptable quality loss).

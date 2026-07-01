@@ -27,6 +27,7 @@ class CompressionResult:
     metric: str = "relative_growth"
     enable_compensation: bool = False
     sgsr_mode: bool = False
+    sgsrq_mode: bool = False
     qi_mode: bool = False
     adaptive_alpha: bool = False
 
@@ -55,6 +56,7 @@ class Pipeline:
         enable_compensation: bool = True,
         smooth_alpha: float = 0.5,
         sgsr_mode: bool = False,
+        sgsrq_mode: bool = False,
         qi_mode: bool = False,
         error_lambda: float = 0.3,
         adaptive_alpha: bool = False,
@@ -78,6 +80,7 @@ class Pipeline:
                 quant_plan = self._planner.plan(
                     layer_profile, int(target_bits), model_info, usable_gb,
                     sgsr_mode=sgsr_mode,
+                    sgsrq_mode=sgsrq_mode,
                 )
                 manual_result = self._manual_quantizer.quantize(
                     model_id, quant_plan,
@@ -138,6 +141,7 @@ class Pipeline:
             metric=metric,
             enable_compensation=enable_compensation,
             sgsr_mode=sgsr_mode,
+            sgsrq_mode=sgsrq_mode,
             qi_mode=qi_mode,
             adaptive_alpha=adaptive_alpha,
         )

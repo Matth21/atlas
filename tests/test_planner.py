@@ -187,6 +187,45 @@ class TestQuantPlanner:
         gs_values = set(lp.group_size for lp in plan.layers)
         assert len(gs_values) >= 2
 
+    def test_sgsrq_mode_top_promoted_rest_sgsr(self):
+        """sgsrq_mode: top 5% → 8-bit, rimanenti a 4-bit con group_size per tier."""
+        from atlas.plan.planner import GROUP_SIZE_FINE, GROUP_SIZE_MID, GROUP_SIZE_COARSE
+        planner = QuantPlanner()
+        profile = _make_profile(20)
+        model_info = _make_model_info(num_layers=20)
+        plan = planner.plan(
+            profile, target_bits=4, model_info=model_info,
+            usable_memory_gb=1000.0, sgsrq_mode=True,
+        )
+        # top 5% of 20 = max(1, int(20*0.05)) = 1 layer → 8-bit
+        promoted = [lp for lp in plan.layers if lp.bits == 8]
+        assert len(promoted) == 1
+        assert promoted[0].layer_index == 19  # most sensitive
+
+        # remaining 19 layers all at 4-bit
+        four_bit = [lp for lp in plan.layers if lp.bits == 4]
+        assert len(four_bit) == 19
+
+        # group_size varies: fine=3 (next after quality gate), coarse=5, mid=rest
+        fine = [lp for lp in four_bit if lp.group_size == GROUP_SIZE_FINE]
+        coarse = [lp for lp in four_bit if lp.group_size == GROUP_SIZE_COARSE]
+        assert len(fine) == 3     # SGSR_FINE_FRACTION=15% of 20 = 3
+        assert len(coarse) == 5   # SGSR_COARSE_FRACTION=25% of 20 = 5
+
+    def test_sgsrq_mode_mixed_bits_and_group_sizes(self):
+        """sgsrq_mode produce sia bits misti che group_size misti."""
+        planner = QuantPlanner()
+        profile = _make_profile(20)
+        model_info = _make_model_info(num_layers=20)
+        plan = planner.plan(
+            profile, target_bits=4, model_info=model_info,
+            usable_memory_gb=1000.0, sgsrq_mode=True,
+        )
+        bits_set = set(lp.bits for lp in plan.layers)
+        gs_set = set(lp.group_size for lp in plan.layers)
+        assert len(bits_set) >= 2   # 4-bit and 8-bit
+        assert len(gs_set) >= 2     # multiple group_sizes
+
     def test_invalid_target_bits(self):
         planner = QuantPlanner()
         profile = _make_profile(5)
