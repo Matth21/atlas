@@ -7,9 +7,10 @@ FREE_TIER_MODELS: frozenset[str] = frozenset(
 
 FREE_TIER_CONFIG: dict = {
     "target": "quality",
-    "quality": 0.8,
+    "quality": 99.0,
     "output_format": "mlx",
     "mode": "mixed",
+    "sgsrq_mode": True,
 }
 
 
