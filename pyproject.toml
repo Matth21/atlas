@@ -12,6 +12,18 @@ dependencies = [
     "transformers>=4.40",
     "numpy",
     "datasets",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "redis>=5.0",
+    "celery>=5.3",
+    "pyjwt[crypto]>=2.8",
+    "stripe>=9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "fakeredis>=2.21",
+    "pytest",
 ]
 
 [project.scripts]
