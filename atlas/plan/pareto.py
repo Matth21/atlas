@@ -38,6 +38,9 @@ def _solve(table: CostTable, lam: float) -> ParetoPoint:
     cost = 0.0
     weighted_bits = 0.0
     for costs, params in zip(table.block_costs, table.block_params):
+        # Tie-break segue l'ordine di inserimento delle config nel dict
+        # (deterministico per una CostTable fissa); nessuna policy di
+        # tie-break canonica è richiesta qui.
         best = min(
             costs,
             key=lambda k: costs[k] + lam * params * effective_bits(*_parse(k)),
@@ -53,10 +56,34 @@ def _solve(table: CostTable, lam: float) -> ParetoPoint:
     )
 
 
+def _lambda_bounds(table: CostTable) -> tuple[float, float]:
+    """Range di λ che copre entrambi gli estremi della frontiera.
+
+    Il punto di svolta per un blocco è λ ≈ Δcost / (params·Δeff): sotto
+    domina il costo KL, sopra domina la penalità di size. Prendiamo i
+    rapporti min/max sui blocchi con margine 1e3 per coprire tutto.
+    """
+    ratios = []
+    for costs, params in zip(table.block_costs, table.block_params):
+        span_cost = max(costs.values()) - min(costs.values())
+        effs = [effective_bits(*_parse(k)) for k in costs]
+        span_eff = (max(effs) - min(effs)) * params
+        if span_cost > 0 and span_eff > 0:
+            ratios.append(span_cost / span_eff)
+    if not ratios:
+        return 1e-8, 1e2
+    return min(ratios) / 1e3, max(ratios) * 1e3
+
+
 def sweep(table: CostTable, num_lambdas: int = 50) -> list[ParetoPoint]:
+    lo, hi = _lambda_bounds(table)
+    lams = [0.0, *np.logspace(np.log10(lo), np.log10(hi), num_lambdas)]
     points: dict[tuple[str, ...], ParetoPoint] = {}
-    for lam in np.logspace(-8, 2, num_lambdas):
+    for lam in lams:
         p = _solve(table, float(lam))
+        # avg_eff_bits e predicted_cost sono funzioni pure di assignment
+        # (non di λ), quindi assignment duplicati sono punti numericamente
+        # identici; cambia solo il lam memorizzato e nulla a valle lo usa.
         points.setdefault(p.assignment, p)
     return sorted(points.values(), key=lambda p: p.avg_eff_bits)
 

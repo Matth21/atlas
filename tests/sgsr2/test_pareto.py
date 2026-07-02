@@ -47,6 +47,26 @@ def test_allocate_unreachable_budget_raises():
         allocate(_table(), budget_bits=3.0)
 
 
+def test_sweep_extremes_at_production_scale():
+    # params ~1e8, costi KL piccoli: il range λ fisso falliva qui.
+    configs = ("3:128", "4:64", "6:32")
+    table = CostTable(
+        model_id="big",
+        configs=configs,
+        block_costs=(
+            {"3:128": 0.02, "4:64": 0.005, "6:32": 0.001},
+            {"3:128": 0.01, "4:64": 0.004, "6:32": 0.002},
+        ),
+        block_params=(100_000_000, 200_000_000),
+        lmhead_costs=None,
+        lmhead_params=0,
+        calib_seed=42,
+    )
+    pts = sweep(table, num_lambdas=40)
+    assert pts[0].avg_eff_bits == pytest.approx(3.25)  # tutto min bits
+    assert pts[-1].avg_eff_bits == pytest.approx(7.0)  # tutto max bits (λ=0)
+
+
 def test_to_quant_plan():
     point = allocate(_table(), budget_bits=5.2)
     plan = to_quant_plan(_table(), point)
