@@ -56,7 +56,8 @@ def main() -> None:
         rows = []
         for budget in TARGET_BUDGETS:
             point = min(frontier, key=lambda p: abs(p.avg_eff_bits - budget))
-            measured = _measure_full_plan(model, point, table, snapshots, seqs)
+            measured = _measure_full_plan(model, point, snapshots, seqs)
+            # measured == 0 (piani quasi-identici al baseline) → ratio None → riga conta come fuori tolleranza: prudente.
             rows.append({
                 "budget_target": budget,
                 "avg_eff_bits": point.avg_eff_bits,
@@ -79,12 +80,18 @@ def main() -> None:
         }
         out_path.write_text(json.dumps(report, indent=2))
         print(json.dumps(report, indent=2))
-        print("\nGATE:", "PASS" if report["rank_preserved"] else "FAIL (ranking)")
+        if report["rank_preserved"] and report["ratios_in_tolerance"]:
+            verdict = "PASS"
+        elif report["rank_preserved"]:
+            verdict = "FAIL (ratio fuori tolleranza)"
+        else:
+            verdict = "FAIL (ranking)"
+        print("\nGATE:", verdict)
     finally:
         shutil.rmtree(smooth_dir, ignore_errors=True)
 
 
-def _measure_full_plan(model, point, table, snapshots, seqs) -> float:
+def _measure_full_plan(model, point, snapshots, seqs) -> float:
     saved = []
     try:
         for block, key in zip(model.model.layers, point.assignment):
