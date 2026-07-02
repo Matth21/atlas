@@ -1,0 +1,28 @@
+{
+  "model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+  "rows": [
+    {
+      "budget_target": 3.2,
+      "avg_eff_bits": 3.25,
+      "predicted": 0.24776044835016364,
+      "measured": 0.3351279399357736,
+      "ratio": 0.7393010812457066
+    },
+    {
+      "budget_target": 4.0,
+      "avg_eff_bits": 3.8068181818181817,
+      "predicted": 0.12033656262792647,
+      "measured": 0.13894948712550104,
+      "ratio": 0.8660453889925975
+    },
+    {
+      "budget_target": 4.8,
+      "avg_eff_bits": 4.613636363636363,
+      "predicted": 0.04193611238224548,
+      "measured": 0.037763047381304204,
+      "ratio": 1.1105065742921818
+    }
+  ],
+  "rank_preserved": true,
+  "ratios_in_tolerance": true
+}
