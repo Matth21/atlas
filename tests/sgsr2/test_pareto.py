@@ -72,4 +72,22 @@ def test_to_quant_plan():
     plan = to_quant_plan(_table(), point)
     assert [(lp.bits, lp.group_size) for lp in plan.layers] == [(6, 32), (3, 128)]
     assert plan.layers[0].layer_index == 0
+    # target_bits = fallback pesato sui params: (6*100 + 3*100) / 200 = 4.5,
+    # tie tra 4 e 5 nella tupla (3,4,5,6) -> min() sceglie il primo, 4.
     assert plan.target_bits == 4
+
+
+def test_to_quant_plan_fallback_tracks_budget():
+    configs = ("3:128", "6:32")
+    table = CostTable(
+        model_id="toy",
+        configs=configs,
+        block_costs=({"3:128": 1.0, "6:32": 0.1}, {"3:128": 1.0, "6:32": 0.1}),
+        block_params=(100, 100),
+        lmhead_costs=None,
+        lmhead_params=0,
+        calib_seed=42,
+    )
+    low = allocate(table, budget_bits=3.3)   # tutto 3:128
+    plan = to_quant_plan(table, low)
+    assert plan.target_bits == 3

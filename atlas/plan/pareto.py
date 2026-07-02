@@ -99,6 +99,18 @@ def allocate(table: CostTable, budget_bits: float) -> ParetoPoint:
     return min(feasible, key=lambda p: p.predicted_cost)
 
 
+def _fallback_bits(table: CostTable, point: ParetoPoint) -> int:
+    """Bits di fallback per moduli fuori piano (embeddings): media pesata
+    dei bit dei blocchi, arrotondata ai bit validi. Così il fallback segue
+    il budget e il confronto con le curve uniformi resta equo."""
+    total = sum(table.block_params)
+    mean_bits = sum(
+        _parse(key)[0] * params
+        for key, params in zip(point.assignment, table.block_params)
+    ) / total
+    return min((3, 4, 5, 6), key=lambda b: abs(b - mean_bits))
+
+
 def to_quant_plan(table: CostTable, point: ParetoPoint) -> QuantPlan:
     layers = []
     for i, key in enumerate(point.assignment):
@@ -118,5 +130,5 @@ def to_quant_plan(table: CostTable, point: ParetoPoint) -> QuantPlan:
         layers=tuple(layers),
         avg_bits=avg_bits,
         estimated_size_gb=0.0,
-        target_bits=4,
+        target_bits=_fallback_bits(table, point),
     )

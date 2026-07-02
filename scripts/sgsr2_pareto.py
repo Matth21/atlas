@@ -5,6 +5,8 @@ Include la curva uniforme di riferimento (uniform+SQ a vari bits/gs) con lo
 stesso protocollo di eval. Bit/w effettivi calcolati dalla size reale su
 disco: accounting identico per tutti i metodi.
 
+Nota: lm_head segue max(bits) del piano (comportamento MixedQuantizer).
+
 Uso:
     .venv/bin/python scripts/sgsr2_pareto.py \
         --model TinyLlama/TinyLlama-1.1B-Chat-v1.0 \
@@ -126,6 +128,9 @@ def main() -> None:
                         (ev["ppl"] - baseline["ppl"]) / baseline["ppl"] * 100, 3
                     ),
                     "size_mb": round(size_mb, 1),
+                    # eff_bits_from_size è "size-derived": numeratore = size intera su disco
+                    # (inclusi embeddings/lm_head), denominatore = solo parametri dei blocchi.
+                    # Non è bit/parametro vero; è coerente tra metodi, e va etichettato così nel paper.
                     "eff_bits_from_size": round(size_mb * 1024**2 * 8 / n_params, 3),
                     "plan": [(lp.bits, lp.group_size) for lp in plan.layers],
                     "elapsed_s": round(time.monotonic() - t0, 1),
