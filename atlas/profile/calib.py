@@ -1,4 +1,7 @@
-"""Calibration set fisso e riproducibile per il CostProfiler SGSR-2."""
+"""Calibration set fisso e riproducibile per il CostProfiler SGSR-2.
+
+La riproducibilità assume anche dataset Wikitext-2 e tokenizer invariati tra run (versioni pinnate), non solo il seed.
+"""
 
 import random
 
@@ -15,6 +18,11 @@ def chunk_tokens(
         tokens[i : i + seq_len]
         for i in range(0, len(tokens) - seq_len + 1, seq_len)
     ]
+    if len(chunks) < num_seqs:
+        raise ValueError(
+            f"servono {num_seqs} chunk da {seq_len} token, "
+            f"disponibili solo {len(chunks)} ({len(tokens)} token)"
+        )
     rng = random.Random(seed)
     rng.shuffle(chunks)
     return chunks[:num_seqs]
