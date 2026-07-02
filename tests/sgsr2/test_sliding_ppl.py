@@ -1,6 +1,7 @@
 import math
 
 import mlx.core as mx
+import pytest
 
 from atlas.eval.sliding_ppl import ppl_with_ci, sliding_nlls
 from tests.sgsr2.toy_model import ToyModel
@@ -28,3 +29,13 @@ def test_ppl_with_ci_brackets_point_estimate():
     ppl, lo, hi = ppl_with_ci(nlls, n_boot=500, seed=0)
     assert lo <= ppl <= hi
     assert math.isclose(ppl, math.exp(sum(nlls) / len(nlls)), rel_tol=1e-9)
+
+
+def test_window_not_greater_than_stride_raises():
+    mx.random.seed(0)
+    model = ToyModel(vocab=64, dim=128, n_blocks=1)
+    tokens = [i % 64 for i in range(300)]
+    with pytest.raises(ValueError, match="window > stride"):
+        sliding_nlls(model, tokens, window=128, stride=128)
+    with pytest.raises(ValueError, match="window > stride"):
+        sliding_nlls(model, tokens, window=64, stride=128)

@@ -17,6 +17,10 @@ STRIDE = 512
 def sliding_nlls(
     model, tokens: list[int], window: int = WINDOW, stride: int = STRIDE
 ) -> list[float]:
+    if not (window > stride > 0):
+        raise ValueError(
+            f"serve window > stride > 0, ricevuto window={window} stride={stride}"
+        )
     nlls: list[float] = []
     scored_until = 1  # il token 0 non è predicibile
     start = 0
