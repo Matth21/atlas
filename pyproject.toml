@@ -24,6 +24,7 @@ dependencies = [
 dev = [
     "fakeredis>=2.21",
     "pytest",
+    "matplotlib",
 ]
 
 [project.scripts]
