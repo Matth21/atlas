@@ -38,3 +38,13 @@ def test_more_bits_less_error():
 
     mx.random.seed(0)
     assert err(6) < err(3)
+
+
+def test_all_group_sizes_roundtrip():
+    for gs in (32, 64, 128):
+        toy = Toy()
+        original = mx.array(toy.proj.weight)
+        saved = apply_fake_quant(toy, bits=4, group_size=gs)
+        assert not mx.array_equal(toy.proj.weight, original), gs
+        restore_weights(toy, saved)
+        assert mx.array_equal(toy.proj.weight, original), gs

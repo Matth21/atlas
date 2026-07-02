@@ -9,7 +9,10 @@ bit-esatto con `restore_weights`.
 import mlx.core as mx
 import mlx.utils
 
-MAX_GROUP_SIZE = 128
+# Selezione fissa: un peso è quantizzabile solo se compatibile con TUTTI i
+# group size del config sweep (32/64/128). Così ogni config della cost table
+# misura lo stesso identico set di pesi — costi confrontabili tra config.
+SELECTION_ALIGNMENT = 128
 
 
 def quantizable_weights(module) -> list[tuple[str, mx.array]]:
@@ -18,7 +21,7 @@ def quantizable_weights(module) -> list[tuple[str, mx.array]]:
         for name, w in mlx.utils.tree_flatten(module.parameters())
         if isinstance(w, mx.array)
         and w.ndim == 2
-        and w.shape[-1] % MAX_GROUP_SIZE == 0
+        and w.shape[-1] % SELECTION_ALIGNMENT == 0
     ]
 
 
