@@ -235,4 +235,10 @@ Current: **93 unit tests + 6 E2E ablation tests**, all green.
 
 ## License
 
-MIT
+Tri-licenza in stile Redis 8 — a tua scelta:
+
+- **RSALv2** (Redis Source Available License 2.0), oppure
+- **SSPLv1** (Server Side Public License v1), oppure
+- **AGPLv3** (GNU Affero General Public License v3)
+
+Sorgente completo e liberamente usabile/modificabile. Offrire Atlas come servizio gestito a terzi richiede il rispetto del copyleft (SSPLv1/AGPLv3) o una licenza commerciale. Testi completi in [LICENSE.txt](LICENSE.txt). Contatto commerciale: raviottamatthias@gmail.com
