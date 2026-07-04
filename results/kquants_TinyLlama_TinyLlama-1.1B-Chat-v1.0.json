@@ -12,6 +12,18 @@
       "size_bytes": 548405536,
       "ppl": 7.8592,
       "ppl_err": 0.04726
+    },
+    {
+      "quant": "Q4_K_M",
+      "size_bytes": 667816224,
+      "ppl": 7.5304,
+      "ppl_err": 0.04512
+    },
+    {
+      "quant": "Q5_K_M",
+      "size_bytes": 782045472,
+      "ppl": 7.3717,
+      "ppl_err": 0.04477
     }
   ]
 }

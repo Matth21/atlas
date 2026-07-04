@@ -1,0 +1,29 @@
+{
+  "model": "Qwen/Qwen2.5-7B-Instruct",
+  "runs": [
+    {
+      "quant": "f16",
+      "size_bytes": 15237853632,
+      "ppl": 6.5469,
+      "ppl_err": 0.04186
+    },
+    {
+      "quant": "Q3_K_M",
+      "size_bytes": 3808391616,
+      "ppl": 7.0569,
+      "ppl_err": 0.0458
+    },
+    {
+      "quant": "Q4_K_M",
+      "size_bytes": 4683073984,
+      "ppl": 6.6763,
+      "ppl_err": 0.04301
+    },
+    {
+      "quant": "Q5_K_M",
+      "size_bytes": 5444831680,
+      "ppl": 6.5898,
+      "ppl_err": 0.04223
+    }
+  ]
+}
