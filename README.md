@@ -6,6 +6,10 @@
 atlas compress TinyLlama/TinyLlama-1.1B-Chat-v1.0 --mode mixed
 ```
 
+> **SGSR-2 (in sviluppo attivo):** allocazione congiunta (bit-width, group-size) per blocco guidata da costo KL *misurato* + solver Lagrangiano — curva Pareto 3–5 bit/w completa da una notte di profiling on-device. Vedi `atlas/profile/cost_table.py`, `atlas/plan/pareto.py`, test in `tests/sgsr2/`. I controlli sperimentali hanno mostrato che il proxy a entropia di SGSR v1 non è distinguibile da un ranking casuale: SGSR-2 lo sostituisce con misura diretta.
+
+**Research:** Raviotta, M. (2026). *SGSR: Entropy-Guided Group-Size Redistribution for Post-Training Quantization of Large Language Models.* Zenodo. https://doi.org/10.5281/zenodo.21110556 *(v2 con metodologia SGSR-2 in preparazione)*
+
 ---
 
 ## Why Atlas?

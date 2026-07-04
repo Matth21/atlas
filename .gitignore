@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+atlas-output/
+graphify-out/
+.DS_Store
+.cache/
+*.sqlite
+*.log
+dist/
+build/
+.coverage

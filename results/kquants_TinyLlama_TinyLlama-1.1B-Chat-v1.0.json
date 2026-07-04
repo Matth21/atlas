@@ -1,0 +1,17 @@
+{
+  "model": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+  "runs": [
+    {
+      "quant": "f16",
+      "size_bytes": 2201018656,
+      "ppl": 7.3132,
+      "ppl_err": 0.04435
+    },
+    {
+      "quant": "Q3_K_M",
+      "size_bytes": 548405536,
+      "ppl": 7.8592,
+      "ppl_err": 0.04726
+    }
+  ]
+}
