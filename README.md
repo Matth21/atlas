@@ -6,9 +6,9 @@
 atlas compress TinyLlama/TinyLlama-1.1B-Chat-v1.0 --mode mixed
 ```
 
-> **SGSR-2 (in sviluppo attivo):** allocazione congiunta (bit-width, group-size) per blocco guidata da costo KL *misurato* + solver Lagrangiano — curva Pareto 3–5 bit/w completa da una notte di profiling on-device. Vedi `atlas/profile/cost_table.py`, `atlas/plan/pareto.py`, test in `tests/sgsr2/`. I controlli sperimentali hanno mostrato che il proxy a entropia di SGSR v1 non è distinguibile da un ranking casuale: SGSR-2 lo sostituisce con misura diretta.
+> **SGSR-2:** per-block joint (bit-width, group-size) allocation driven by *measured* KL cost and an exact Lagrangian solver — the full 3–5 bit/w Pareto frontier from a single overnight on-device profiling run. See `atlas/profile/cost_table.py`, `atlas/plan/pareto.py`, and tests under `tests/sgsr2/`. Controlled experiments showed that the entropy proxy used in SGSR v1 is statistically indistinguishable from random ranking; SGSR-2 replaces it with direct measurement (see the paper's negative-result section).
 
-**Research:** Raviotta, M. (2026). *SGSR: Entropy-Guided Group-Size Redistribution for Post-Training Quantization of Large Language Models.* Zenodo. https://doi.org/10.5281/zenodo.21110556 *(v2 con metodologia SGSR-2 in preparazione)*
+**Research:** Raviotta, M. (2026). *SGSR-2: Measured-Cost Pareto Allocation of Bit-Width and Group-Size for On-Device LLM Quantization.* Paper source and PDF under [`paper/`](paper/). Zenodo DOI (v1, superseded): https://doi.org/10.5281/zenodo.21110556
 
 ---
 
@@ -235,10 +235,12 @@ Current: **93 unit tests + 6 E2E ablation tests**, all green.
 
 ## License
 
-Tri-licenza in stile Redis 8 — a tua scelta:
+Atlas is available under a tri-license model (Redis 8 style). Users may choose any one of:
 
-- **RSALv2** (Redis Source Available License 2.0), oppure
-- **SSPLv1** (Server Side Public License v1), oppure
-- **AGPLv3** (GNU Affero General Public License v3)
+- **RSALv2** — Redis Source Available License 2.0
+- **SSPLv1** — Server Side Public License v1
+- **AGPLv3** — GNU Affero General Public License v3
 
-Sorgente completo e liberamente usabile/modificabile. Offrire Atlas come servizio gestito a terzi richiede il rispetto del copyleft (SSPLv1/AGPLv3) o una licenza commerciale. Testi completi in [LICENSE.txt](LICENSE.txt). Contatto commerciale: raviottamatthias@gmail.com
+The source code is fully available and may be used, modified, and redistributed under any of the licenses above. Offering Atlas to third parties as a managed or hosted service requires compliance with the copyleft terms of SSPLv1/AGPLv3, or a separate commercial license.
+
+Full license texts: [LICENSE.txt](LICENSE.txt). Commercial licensing inquiries: raviottamatthias@gmail.com
