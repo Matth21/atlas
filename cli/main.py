@@ -11,12 +11,22 @@ def compress(
     target: str = typer.Option("auto", help="Hardware target (e.g. macbook-air-16gb, auto)"),
     quality: float = typer.Option(99.0, min=90, max=100, help="Quality target (percent of FP16)"),
     output_format: str = typer.Option("mlx", help="Output format: mlx or gguf"),
-    mode: str = typer.Option("mixed", help="Quantization mode: uniform or mixed"),
+    mode: str = typer.Option("mixed", help="Quantization mode: uniform or mixed (legacy)"),
+    budget_gb: float = typer.Option(None, "--budget-gb", help="SGSR-2: memory budget in GB — measures per-block cost and finds the best plan that fits (recommended)"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Profile only, skip quantization"),
 ):
     from atlas.core.pipeline import Pipeline
 
     console.print("[bold green]Atlas v0.1.0[/bold green] — Universal Lossless Model Compressor\n")
+
+    if budget_gb is not None:
+        _compress_sgsr2(model, budget_gb)
+        return
+
+    if mode == "mixed":
+        console.print("[yellow]⚠ 'mixed' mode uses the legacy entropy planner, which controlled "
+                      "experiments showed carries no allocation signal (see paper §6). "
+                      "Prefer --budget-gb (SGSR-2, measured cost).[/yellow]\n")
 
     pipeline = Pipeline()
 
@@ -60,6 +70,28 @@ def compress(
     pi = result.package_info
     console.print(f"[green]\\[pack][/green]   Output: {pi.output_path}")
     console.print(f"\n[bold green]✓ Compression complete![/bold green] {pi.total_size_mb:.0f} MB total, PPL delta {er.ppl_delta_pct:+.2f}%")
+
+
+def _compress_sgsr2(model: str, budget_gb: float) -> None:
+    from atlas.core.model import ModelLoader
+    from atlas.core.sgsr2_flow import compress_to_budget
+
+    mi = ModelLoader().load_metadata(model)
+    console.print(f"[blue]\\[model][/blue]  {mi.model_id} | {mi.num_params/1e9:.1f}B params | {mi.size_fp16_gb:.1f} GB FP16")
+    console.print(f"[blue]\\[sgsr2][/blue]  budget {budget_gb:.2f} GB — profiling misurato per blocco "
+                  f"(prima volta: ore; poi in cache)\n")
+
+    try:
+        r = compress_to_budget(model, budget_gb, mi.num_params)
+    except ValueError as exc:
+        console.print(f"[bold red]✗[/bold red] {exc}")
+        raise typer.Exit(1)
+
+    console.print(f"[green]\\[plan][/green]   {r.plan_bits:.2f} bit/w effettivi (budget {r.budget_bits:.2f})")
+    console.print(f"[green]\\[plan][/green]   {r.assignment_summary}")
+    console.print(f"[green]\\[quant][/green]  {r.original_size_mb:.0f} MB → {r.quantized_size_mb:.0f} MB")
+    console.print(f"[green]\\[out][/green]    {r.output_path}")
+    console.print(f"\n[bold green]✓ SGSR-2 compression complete[/bold green] — fits in {budget_gb:.2f} GB")
 
 
 if __name__ == "__main__":
