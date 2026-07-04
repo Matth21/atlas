@@ -233,6 +233,19 @@ Current: **93 unit tests + 6 E2E ablation tests**, all green.
 
 ---
 
+## Pre-computed cost tables
+
+Profiling a model takes hours (one-time, then cached). To skip it, this repo ships pre-computed cost tables under [`cost_tables/`](cost_tables/). Install them with:
+
+```bash
+mkdir -p ~/.cache/atlas/Qwen_Qwen2.5-7B-Instruct
+cp cost_tables/Qwen_Qwen2.5-7B-Instruct.json ~/.cache/atlas/Qwen_Qwen2.5-7B-Instruct/cost_table_v1.json
+```
+
+Then `atlas Qwen/Qwen2.5-7B-Instruct --budget-gb 4` produces a plan in seconds and a quantized model in minutes. Tables available: TinyLlama-1.1B-Chat, Qwen2.5-7B-Instruct (more coming; contributions welcome).
+
+---
+
 ## License
 
 Atlas is available under a tri-license model (Redis 8 style). Users may choose any one of:
