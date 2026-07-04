@@ -8,7 +8,7 @@ atlas compress TinyLlama/TinyLlama-1.1B-Chat-v1.0 --mode mixed
 
 > **SGSR-2:** per-block joint (bit-width, group-size) allocation driven by *measured* KL cost and an exact Lagrangian solver — the full 3–5 bit/w Pareto frontier from a single overnight on-device profiling run. See `atlas/profile/cost_table.py`, `atlas/plan/pareto.py`, and tests under `tests/sgsr2/`. Controlled experiments showed that the entropy proxy used in SGSR v1 is statistically indistinguishable from random ranking; SGSR-2 replaces it with direct measurement (see the paper's negative-result section).
 
-**Research:** Raviotta, M. (2026). *SGSR-2: Measured-Cost Pareto Allocation of Bit-Width and Group-Size for On-Device LLM Quantization.* Paper source and PDF under [`paper/`](paper/). Zenodo DOI (v1, superseded): https://doi.org/10.5281/zenodo.21110556
+**Research:** Raviotta, M. (2026). *SGSR-2: Measured-Cost Pareto Allocation of Bit-Width and Group-Size for On-Device LLM Quantization.* Zenodo. https://doi.org/10.5281/zenodo.21190586 — paper source and PDF under [`paper/`](paper/). (v1, superseded: https://doi.org/10.5281/zenodo.21110556)
 
 ---
 
