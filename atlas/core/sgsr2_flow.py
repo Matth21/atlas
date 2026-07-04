@@ -39,6 +39,9 @@ def budget_gb_to_bits(budget_gb: float, num_params: int) -> float:
 def compress_to_budget(model_id: str, budget_gb: float, num_params: int,
                        output_dir: Path | None = None) -> Sgsr2Result:
     budget_bits = budget_gb_to_bits(budget_gb, num_params) - BUDGET_SAFETY_BITS
+    if output_dir is None:
+        safe = model_id.replace("/", "_")
+        output_dir = Path.home() / ".cache" / "atlas" / safe / f"sgsr2-{budget_gb:g}gb"
 
     smooth_dir = smooth_model_dir(model_id)
     try:

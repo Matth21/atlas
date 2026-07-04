@@ -20,8 +20,27 @@ def run_compress_job(job_id: str, job_store: JobStore, pipeline: Pipeline, strip
     job_store.set_status(job_id, "running")
 
     try:
-        result = pipeline.run(model_id=job.model_id, **job.config)
-        serialized = serialize_compression_result(result)
+        config = dict(job.config)
+        budget_gb = config.pop("budget_gb", None)
+        if budget_gb is not None:
+            # Percorso SGSR-2: budget in GB, costo misurato, piano ottimo.
+            from atlas.core.model import ModelLoader
+            from atlas.core.sgsr2_flow import compress_to_budget
+
+            mi = ModelLoader().load_metadata(job.model_id)
+            r = compress_to_budget(job.model_id, float(budget_gb), mi.num_params)
+            serialized = {
+                "engine": "sgsr2",
+                "output_path": str(r.output_path),
+                "budget_gb": r.budget_gb,
+                "plan_bits": r.plan_bits,
+                "quantized_size_mb": r.quantized_size_mb,
+                "original_size_mb": r.original_size_mb,
+                "assignment_summary": r.assignment_summary,
+            }
+        else:
+            result = pipeline.run(model_id=job.model_id, **config)
+            serialized = serialize_compression_result(result)
         job_store.set_result(job_id, "done", result=serialized)
     except Exception as e:
         job_store.set_result(job_id, "failed", error=str(e))
